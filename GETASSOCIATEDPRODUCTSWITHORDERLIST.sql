@@ -19,7 +19,12 @@ ALTER PROCEDURE [dbo].[GETASSOCIATEDPRODUCTSWITHORDERLIST]
  @SEARCHSERIALNUMBER VARCHAR(30) ='',      
  @ISPRODUCTGROUPTABLENEEDED VARCHAR(10) ='YES',    -- this parameter from SPUPDATEFIRMWARESERIALNUMBER. to get only serial number detatils         
     @ORGANISATIONID BIGINT = NULL,              -- Filter by specific organization ID
-    @ISLICENSEEXPIRY BIT = NULL                 -- Filter by license expiry status (1=expired, 0=not expired, NULL=all)
+    @ISLICENSEEXPIRY BIT = NULL,                -- Filter by license expiry status (1=expired, 0=not expired, NULL=all)
+    -- Pagination parameters
+    @PAGENO INT = 1,                            -- Page number (1-based)
+    @PAGESIZE INT = 50,                         -- Number of records per page
+    @MINCOUNT INT = NULL,                       -- Minimum record count filter
+    @MAXCOUNT INT = NULL                        -- Maximum record count filter
  --WITH EXECUTE AS CALLER          
    
    
@@ -2600,6 +2605,65 @@ END
             DELETE FROM #TEMPLISTTABLE 
             WHERE ISLICENSEEXPIRED = 1
         END
+    END
+
+    -- Declare pagination variables
+    DECLARE @TotalRecords INT
+    DECLARE @ValidatedPageNo INT = ISNULL(@PAGENO, 1)
+    DECLARE @ValidatedPageSize INT = ISNULL(@PAGESIZE, 50)
+    DECLARE @OffsetRows INT
+
+    -- Get total record count before pagination
+    SELECT @TotalRecords = COUNT(*) FROM #TEMPLISTTABLE
+
+    -- Apply MINCOUNT filter if specified
+    IF @MINCOUNT IS NOT NULL AND @TotalRecords < @MINCOUNT
+    BEGIN
+        DELETE FROM #TEMPLISTTABLE
+    END
+
+    -- Apply MAXCOUNT filter if specified  
+    IF @MAXCOUNT IS NOT NULL AND @TotalRecords > @MAXCOUNT
+    BEGIN
+        DELETE FROM #TEMPLISTTABLE
+    END
+
+    -- Apply pagination if records still exist
+    IF EXISTS(SELECT 1 FROM #TEMPLISTTABLE)
+    BEGIN
+        -- Validate page number (must be at least 1)
+        IF @ValidatedPageNo < 1 SET @ValidatedPageNo = 1
+        
+        -- Validate page size (must be at least 1, max 1000 for performance)
+        IF @ValidatedPageSize < 1 SET @ValidatedPageSize = 50
+        IF @ValidatedPageSize > 1000 SET @ValidatedPageSize = 1000
+        
+        -- Calculate offset
+        SET @OffsetRows = (@ValidatedPageNo - 1) * @ValidatedPageSize
+        
+        -- Create a temporary table with row numbers for pagination
+        CREATE TABLE #PAGINATEDTABLE (
+            RowNum INT,
+            CID INT
+        )
+        
+        -- Insert row numbers with pagination logic
+        INSERT INTO #PAGINATEDTABLE (RowNum, CID)
+        SELECT 
+            ROW_NUMBER() OVER (ORDER BY CID) as RowNum,
+            CID
+        FROM #TEMPLISTTABLE
+        
+        -- Delete records outside the requested page
+        DELETE FROM #TEMPLISTTABLE 
+        WHERE CID NOT IN (
+            SELECT CID 
+            FROM #PAGINATEDTABLE 
+            WHERE RowNum > @OffsetRows 
+            AND RowNum <= (@OffsetRows + @ValidatedPageSize)
+        )
+        
+        DROP TABLE #PAGINATEDTABLE
     END
          
            IF ( @OutformatXML = 0 )             
