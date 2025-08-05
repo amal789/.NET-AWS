@@ -2634,9 +2634,9 @@ END
         -- Validate page number (must be at least 1)
         IF @ValidatedPageNo < 1 SET @ValidatedPageNo = 1
         
-        -- Validate page size (must be at least 1, max 1000 for performance)
+        -- Validate page size (must be at least 1, max 5000 for performance)
         IF @ValidatedPageSize < 1 SET @ValidatedPageSize = 50
-        IF @ValidatedPageSize > 1000 SET @ValidatedPageSize = 1000
+        IF @ValidatedPageSize > 5000 SET @ValidatedPageSize = 5000
         
         -- Calculate offset
         SET @OffsetRows = (@ValidatedPageNo - 1) * @ValidatedPageSize
