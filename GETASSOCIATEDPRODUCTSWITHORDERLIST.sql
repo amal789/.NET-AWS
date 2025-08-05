@@ -17,7 +17,9 @@ ALTER PROCEDURE [dbo].[GETASSOCIATEDPRODUCTSWITHORDERLIST]
     @IsMobile VARCHAR(50) = 'NO',          
     @SOURCE VARCHAR(10) =''  ,      
  @SEARCHSERIALNUMBER VARCHAR(30) ='',      
- @ISPRODUCTGROUPTABLENEEDED VARCHAR(10) ='YES'    -- this parameter from SPUPDATEFIRMWARESERIALNUMBER. to get only serial number detatils         
+ @ISPRODUCTGROUPTABLENEEDED VARCHAR(10) ='YES',    -- this parameter from SPUPDATEFIRMWARESERIALNUMBER. to get only serial number detatils         
+    @ORGANISATIONID BIGINT = NULL,              -- Filter by specific organization ID
+    @ISLICENSEEXPIRY BIT = NULL                 -- Filter by license expiry status (1=expired, 0=not expired, NULL=all)
  --WITH EXECUTE AS CALLER          
    
    
@@ -2567,11 +2569,40 @@ END
   SET  ISSOONEXPIRING = 1 , SOONEXPIRINGCNT = 1            
   WHERE   SOONEXPIRINGCNT > 0          
           
-  UPDATE  #TEMPLISTTABLE            
-  SET   ACTIVELICENSECNT = 1            
-  WHERE   ACTIVELICENSECNT > 0              
-          
-            IF ( @OutformatXML = 0 )             
+   UPDATE  #TEMPLISTTABLE            
+ SET   ACTIVELICENSECNT = 1            
+ WHERE   ACTIVELICENSECNT > 0              
+
+    -- Apply ORGANISATIONID filter if specified
+    IF @ORGANISATIONID IS NOT NULL
+    BEGIN
+        DELETE FROM #TEMPLISTTABLE 
+        WHERE SERIALNUMBER NOT IN (
+            SELECT CP.SERIALNUMBER 
+            FROM CUSTOMERPRODUCTSSUMMARY CP WITH (NOLOCK)
+            INNER JOIN vCUSTOMER V WITH (NOLOCK) ON CP.USERNAME = V.USERNAME
+            WHERE V.ORGANIZATIONID = @ORGANISATIONID
+        )
+    END
+
+    -- Apply ISLICENSEEXPIRY filter if specified
+    IF @ISLICENSEEXPIRY IS NOT NULL
+    BEGIN
+        IF @ISLICENSEEXPIRY = 1
+        BEGIN
+            -- Filter to show only expired licenses
+            DELETE FROM #TEMPLISTTABLE 
+            WHERE ISLICENSEEXPIRED <> 1 OR ISLICENSEEXPIRED IS NULL
+        END
+        ELSE IF @ISLICENSEEXPIRY = 0
+        BEGIN
+            -- Filter to show only non-expired licenses
+            DELETE FROM #TEMPLISTTABLE 
+            WHERE ISLICENSEEXPIRED = 1
+        END
+    END
+         
+           IF ( @OutformatXML = 0 )             
                 BEGIN             
               
               
