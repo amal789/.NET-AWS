@@ -1,0 +1,260 @@
+=================================================
+          Currency Converter                     
+    Dynamic Currency Conversion Console App      
+=================================================
+
+Choose an option:
+1. Convert Currency
+2. View Supported Currencies
+3. Get Exchange Rates for a Currency
+4. Exit
+Enter your choice (1-4): 1
+
+--- Currency Conversion ---
+Enter source currency code (e.g., USD): USD
+Enter target currency code (e.g., EUR): EUR
+Enter amount to convert: 100
+Fetching latest exchange rates...
+
+=== Conversion Result ===
+100.00 USD = 85.43 EUR
+Exchange Rate: 1 USD = 0.8543 EUR
+Last Updated: 2025-08-03
+
+Do you want to perform another conversion? (y/n): y
+
+Choose an option:
+1. Convert Currency
+2. View Supported Currencies
+3. Get Exchange Rates for a Currency
+4. Exit
+Enter your choice (1-4): 2
+
+--- Supported Currencies ---
+Fetching latest exchange rates...
+Supported currency codes:
+
+AED - UAE Dirham
+AFN - Unknown
+ALL - Unknown
+AMD - Unknown
+ANG - Unknown
+AOA - Unknown
+ARS - Unknown
+AUD - Australian Dollar
+AWG - Unknown
+AZN - Unknown
+BAM - Unknown
+BBD - Unknown
+BDT - Unknown
+BGN - Bulgarian Lev
+BHD - Unknown
+BIF - Unknown
+BMD - Unknown
+BND - Unknown
+BOB - Unknown
+BRL - Brazilian Real
+Press any key to continue...
+
+BSD - Unknown
+BTN - Unknown
+BWP - Unknown
+BYN - Unknown
+BZD - Unknown
+CAD - Canadian Dollar
+CDF - Unknown
+CHF - Swiss Franc
+CLP - Chilean Peso
+CNY - Chinese Yuan
+COP - Colombian Peso
+CRC - Unknown
+CUC - Unknown
+CUP - Unknown
+CVE - Unknown
+CZK - Czech Republic Koruna
+DJF - Unknown
+DKK - Danish Krone
+DOP - Unknown
+DZD - Unknown
+EGP - Unknown
+ERN - Unknown
+ETB - Unknown
+EUR - Euro
+FJD - Unknown
+FKP - Unknown
+Press any key to continue...
+
+GBP - British Pound Sterling
+GEL - Unknown
+GGP - Unknown
+GHS - Unknown
+GIP - Unknown
+GMD - Unknown
+GNF - Unknown
+GTQ - Unknown
+GYD - Unknown
+HKD - Hong Kong Dollar
+HNL - Unknown
+HRK - Croatian Kuna
+HTG - Unknown
+HUF - Hungarian Forint
+IDR - Indonesian Rupiah
+ILS - Israeli New Sheqel
+IMP - Unknown
+INR - Indian Rupee
+IQD - Unknown
+IRR - Unknown
+ISK - Icelandic Krona
+JEP - Unknown
+JMD - Unknown
+JOD - Unknown
+JPY - Japanese Yen
+KES - Unknown
+KGS - Unknown
+KHR - Unknown
+KMF - Unknown
+KPW - Unknown
+KRW - South Korean Won
+KWD - Unknown
+KYD - Unknown
+KZT - Unknown
+LAK - Unknown
+LBP - Unknown
+LKR - Unknown
+LRD - Unknown
+LSL - Unknown
+LYD - Unknown
+MAD - Unknown
+MDL - Unknown
+MGA - Unknown
+MKD - Unknown
+MMK - Unknown
+MNT - Unknown
+MOP - Unknown
+MRU - Unknown
+MUR - Unknown
+MVR - Unknown
+MWK - Unknown
+MXN - Mexican Peso
+MYR - Malaysian Ringgit
+MZN - Unknown
+NAD - Unknown
+NGN - Unknown
+NIO - Unknown
+NOK - Norwegian Krone
+NPR - Unknown
+NZD - New Zealand Dollar
+OMR - Unknown
+PAB - Unknown
+PEN - Unknown
+PGK - Unknown
+PHP - Philippine Peso
+PKR - Unknown
+PLN - Polish Zloty
+PYG - Unknown
+QAR - Unknown
+RON - Romanian Leu
+RSD - Unknown
+RUB - Russian Ruble
+RWF - Unknown
+SAR - Saudi Riyal
+SBD - Unknown
+SCR - Unknown
+SDG - Unknown
+SEK - Swedish Krona
+SGD - Singapore Dollar
+SHP - Unknown
+SLE - Unknown
+SLL - Unknown
+SOS - Unknown
+SRD - Unknown
+STN - Unknown
+SYP - Unknown
+SZL - Unknown
+THB - Thai Baht
+TJS - Unknown
+TMT - Unknown
+TND - Unknown
+TOP - Unknown
+TRY - Turkish Lira
+TTD - Unknown
+TVD - Unknown
+TWD - Unknown
+TZS - Unknown
+UAH - Unknown
+UGX - Unknown
+UYU - Unknown
+UZS - Unknown
+VED - Unknown
+VES - Unknown
+VND - Unknown
+VUV - Unknown
+WST - Unknown
+XAF - Unknown
+XCD - Unknown
+XDR - Unknown
+XOF - Unknown
+XPF - Unknown
+YER - Unknown
+ZAR - South African Rand
+ZMW - Unknown
+ZWL - Unknown
+
+Total supported currencies: 169
+
+Do you want to perform another conversion? (y/n): y
+
+Choose an option:
+1. Convert Currency
+2. View Supported Currencies
+3. Get Exchange Rates for a Currency
+4. Exit
+Enter your choice (1-4): 3
+
+--- Exchange Rates ---
+Enter base currency code (e.g., USD): USD
+Fetching latest exchange rates...
+
+Exchange rates for USD (Base: USD)
+Last Updated: 2025-08-03
+====================================
+1 USD = 3.6725 AED (UAE Dirham)
+1 USD = 68.2500 AFN (Unknown)
+1 USD = 92.5000 ALL (Unknown)
+1 USD = 386.5000 AMD (Unknown)
+1 USD = 1.7900 ANG (Unknown)
+1 USD = 456.7800 AOA (Unknown)
+1 USD = 350.2500 ARS (Unknown)
+1 USD = 1.4850 AUD (Australian Dollar)
+1 USD = 1.7900 AWG (Unknown)
+1 USD = 1.7000 AZN (Unknown)
+1 USD = 1.8200 BAM (Unknown)
+1 USD = 2.0000 BBD (Unknown)
+1 USD = 109.5000 BDT (Unknown)
+1 USD = 1.8200 BGN (Bulgarian Lev)
+1 USD = 0.3770 BHD (Unknown)
+Press any key to continue...
+
+1 USD = 2865.0000 BIF (Unknown)
+1 USD = 1.0000 BMD (Unknown)
+1 USD = 1.3500 BND (Unknown)
+1 USD = 6.9000 BOB (Unknown)
+1 USD = 5.4500 BRL (Brazilian Real)
+1 USD = 1.0000 BSD (Unknown)
+1 USD = 84.2500 BTN (Unknown)
+1 USD = 13.6500 BWP (Unknown)
+1 USD = 3.2500 BYN (Unknown)
+1 USD = 2.0000 BZD (Unknown)
+1 USD = 1.3456 CAD (Canadian Dollar)
+1 USD = 2450.0000 CDF (Unknown)
+1 USD = 0.9100 CHF (Swiss Franc)
+1 USD = 950.0000 CLP (Chilean Peso)
+1 USD = 7.2500 CNY (Chinese Yuan)
+1 USD = 4250.0000 COP (Colombian Peso)
+1 USD = 510.0000 CRC (Unknown)
+1 USD = 1.0000 CUC (Unknown)
+1 USD = 24.0000 CUP (Unknown)
+Press any key to continue...
+
+Do you want to perform another conversion? (y/n): n
+Thank you for using Currency Converter!
