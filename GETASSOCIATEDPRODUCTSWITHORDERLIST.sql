@@ -1577,8 +1577,7 @@ BEGIN
      ORDER BY C.SERIALNUMBER DESC            
                     FOR     XML AUTO ,            
                                 ELEMENTS          
-   RETURN                
-   END              
+                END              
         END                  
                                   
     IF @ORDERNAME = 'SERIALNUMBER'            
