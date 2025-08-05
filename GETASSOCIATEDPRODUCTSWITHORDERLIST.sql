@@ -1,5 +1,3 @@
-  
-     
 ALTER PROCEDURE [dbo].[GETASSOCIATEDPRODUCTSWITHORDERLIST]        
     @USERNAME NVARCHAR(30) ,            
     @ORDERNAME VARCHAR(50) ,            
@@ -16,9 +14,18 @@ ALTER PROCEDURE [dbo].[GETASSOCIATEDPRODUCTSWITHORDERLIST]
     @CallFrom VARCHAR(50) = NULL ,            
     @IsMobile VARCHAR(50) = 'NO',          
     @SOURCE VARCHAR(10) =''  ,      
- @SEARCHSERIALNUMBER VARCHAR(30) ='',      
- @ISPRODUCTGROUPTABLENEEDED VARCHAR(10) ='YES'    -- this parameter from SPUPDATEFIRMWARESERIALNUMBER. to get only serial number detatils         
- --WITH EXECUTE AS CALLER          
+  @SEARCHSERIALNUMBER VARCHAR(30) ='',      
+ @ISPRODUCTGROUPTABLENEEDED VARCHAR(10) ='YES',    -- this parameter from SPUPDATEFIRMWARESERIALNUMBER. to get only serial number detatils         
+    -- Pagination parameters
+    @PAGENO INT = 1,                    -- Page number (1-based)
+    @PAGESIZE INT = 50,                 -- Number of records per page
+    @MINCOUNT INT = NULL,               -- Minimum record count filter
+    @MAXCOUNT INT = NULL,               -- Maximum record count filter
+    -- Additional filter parameters
+    @ORGANIZATIONID INT = NULL,         -- Organization ID filter
+    @ISDOWNLOADAVAILABLE VARCHAR(3) = NULL,  -- Download availability filter ('YES', 'NO')
+    @ISLICENSEEXPIRED VARCHAR(3) = NULL -- License expiration filter ('YES', 'NO')
+--WITH EXECUTE AS CALLER          
    
    
  --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)  
@@ -792,13 +799,13 @@ AND P.PARTYID = PGD.PARTYID
                 AND CP.SERIALNUMBER IN (            
          SELECT  CHILDSERIALNUMBER           
                                 FROM    dbo.DEVICEASSOCIATION WITH ( NOLOCK )            
-                                WHERE   PRODUCTASSOCIATIONTYPEID = @ASSOCTYPEID            
+                                WHERE   PRODUCTASSOCIATIONTYPEID IN ( 5, 6, 70 )--@ASSOCTYPEID            
                                         AND PRIMARYSERIALNUMBER = @SERIALNUMBER            
                                         AND @ASSOCTYPE = 'CHILDASSOCIATE'            
                                 UNION            
         SELECT  PRIMARYSERIALNUMBER            
                                 FROM    dbo.DEVICEASSOCIATION WITH ( NOLOCK )            
-                                WHERE   PRODUCTASSOCIATIONTYPEID = @ASSOCTYPEID            
+                                WHERE   PRODUCTASSOCIATIONTYPEID IN ( 5, 6, 70 )--@ASSOCTYPEID            
                                         AND CHILDSERIALNUMBER = @SERIALNUMBER            
                             AND @ASSOCTYPE <> 'CHILDASSOCIATE' )        
        END      
@@ -863,13 +870,13 @@ AND P.PARTYID = PGD.PARTYID
                 AND CP.SERIALNUMBER IN (            
          SELECT  CHILDSERIALNUMBER           
                                 FROM    dbo.DEVICEASSOCIATION WITH ( NOLOCK )            
-                                WHERE   PRODUCTASSOCIATIONTYPEID = @ASSOCTYPEID            
+                                WHERE   PRODUCTASSOCIATIONTYPEID IN ( 5, 6, 70 )--@ASSOCTYPEID            
                                         AND PRIMARYSERIALNUMBER = @SERIALNUMBER            
                                         AND @ASSOCTYPE = 'CHILDASSOCIATE'            
                                 UNION            
         SELECT  PRIMARYSERIALNUMBER            
                                 FROM    dbo.DEVICEASSOCIATION WITH ( NOLOCK )            
-                                WHERE   PRODUCTASSOCIATIONTYPEID = @ASSOCTYPEID            
+                                WHERE   PRODUCTASSOCIATIONTYPEID IN ( 5, 6, 70 )--@ASSOCTYPEID            
                                         AND CHILDSERIALNUMBER = @SERIALNUMBER            
                                         AND @ASSOCTYPE <> 'CHILDASSOCIATE' )        
        END      
@@ -931,13 +938,13 @@ AND P.PARTYID = PGD.PARTYID
                 AND CP.SERIALNUMBER IN (            
          SELECT  CHILDSERIALNUMBER           
                                 FROM    dbo.DEVICEASSOCIATION WITH ( NOLOCK )            
-                                WHERE   PRODUCTASSOCIATIONTYPEID = @ASSOCTYPEID            
+                                WHERE   PRODUCTASSOCIATIONTYPEID IN ( 5, 6, 70 )--@ASSOCTYPEID            
                                         AND PRIMARYSERIALNUMBER = @SERIALNUMBER            
                                         AND @ASSOCTYPE = 'CHILDASSOCIATE'            
                                 UNION            
         SELECT  PRIMARYSERIALNUMBER            
                                 FROM    dbo.DEVICEASSOCIATION WITH ( NOLOCK )            
-                                WHERE   PRODUCTASSOCIATIONTYPEID = @ASSOCTYPEID            
+                                WHERE   PRODUCTASSOCIATIONTYPEID IN ( 5, 6, 70 )--@ASSOCTYPEID            
                                         AND CHILDSERIALNUMBER = @SERIALNUMBER            
                                         AND @ASSOCTYPE <> 'CHILDASSOCIATE' )        
     AND (CP.SERIALNUMBER = @SEARCHSERIALNUMBER OR CP.NAME = @SEARCHSERIALNUMBER)       
@@ -1018,11 +1025,57 @@ AND P.PARTYID = PGD.PARTYID
   #TEMPLISTTABLE TMP          
   WHERE DEA.SERIALNUMBER = TMP.SERIALNUMBER           
             
-             
- END           
-          
-      
-      
+  -- Apply additional filter parameters
+  -- Filter by Organization ID if specified
+  IF @ORGANIZATIONID IS NOT NULL
+  BEGIN
+      DELETE FROM #TEMPLISTTABLE 
+      WHERE SERIALNUMBER NOT IN (
+          SELECT CP.SERIALNUMBER 
+          FROM CUSTOMERPRODUCTS CP WITH (NOLOCK)
+          INNER JOIN vCUSTOMER VC WITH (NOLOCK) ON CP.USERNAME = VC.USERNAME
+          WHERE VC.ORGANIZATIONID = @ORGANIZATIONID
+      )
+  END
+
+  -- Filter by Download Availability if specified
+  IF @ISDOWNLOADAVAILABLE IS NOT NULL
+  BEGIN
+      IF @ISDOWNLOADAVAILABLE = 'YES'
+      BEGIN
+          DELETE FROM #TEMPLISTTABLE 
+          WHERE SERIALNUMBER NOT IN (
+              SELECT CP.SERIALNUMBER 
+              FROM CUSTOMERPRODUCTSSUMMARY CP WITH (NOLOCK)
+              WHERE CP.UPDATESAVAILABLE = 1
+          )
+      END
+      ELSE IF @ISDOWNLOADAVAILABLE = 'NO'
+      BEGIN
+          DELETE FROM #TEMPLISTTABLE 
+          WHERE SERIALNUMBER IN (
+              SELECT CP.SERIALNUMBER 
+              FROM CUSTOMERPRODUCTSSUMMARY CP WITH (NOLOCK)
+              WHERE CP.UPDATESAVAILABLE = 1
+          )
+      END
+  END
+
+  -- Filter by License Expiration if specified
+  IF @ISLICENSEEXPIRED IS NOT NULL
+  BEGIN
+      IF @ISLICENSEEXPIRED = 'YES'
+      BEGIN
+          DELETE FROM #TEMPLISTTABLE 
+          WHERE ISLICENSEEXPIRED = 0 OR ISLICENSEEXPIRED IS NULL
+      END
+      ELSE IF @ISLICENSEEXPIRED = 'NO'
+      BEGIN
+          DELETE FROM #TEMPLISTTABLE 
+          WHERE ISLICENSEEXPIRED = 1
+      END
+  END
+
   update #TEMPLISTTABLE SET      
   CURRENTNODESUPPORT  = CASE WHEN T.PRODUCTID = 7636      
   THEN (SELECT ISNULL(NODECOUNT,1)        
@@ -1486,7 +1539,29 @@ MANAGEMENTOPTION=CP.MANAGEMENTOPTION
             IF ( @OutformatXML = 0 )             
 BEGIN      
  --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)                   
-          SELECT DISTINCT TOP 10            
+                    -- Apply pagination logic for SERIALNUMBER DESC ordering
+                    DECLARE @SerialDescStartRow INT, @SerialDescEndRow INT, @SerialDescTotalCount INT
+                    SET @SerialDescStartRow = (@PAGENO - 1) * @PAGESIZE + 1
+                    SET @SerialDescEndRow = @PAGENO * @PAGESIZE
+
+                    -- Get total count first
+                    SELECT @SerialDescTotalCount = COUNT(*) 
+                    FROM CUSTOMERPRODUCTSSUMMARY C with (nolock)
+                    INNER JOIN #TEMPLISTTABLE AS PRODUCT ON C.serialnumber = PRODUCT.serialnumber
+
+                    -- Apply min/max count filters if specified
+                    IF (@MINCOUNT IS NOT NULL AND @SerialDescTotalCount < @MINCOUNT) OR 
+                       (@MAXCOUNT IS NOT NULL AND @SerialDescTotalCount > @MAXCOUNT)
+                    BEGIN
+                        SELECT 'No records match the count criteria' AS Message, 
+                               @SerialDescTotalCount AS TotalCount, 
+                               @MINCOUNT AS MinCount, 
+                               @MAXCOUNT AS MaxCount
+                        RETURN
+                    END
+
+                    ;WITH SerialDescPaginatedResults AS (
+          SELECT DISTINCT            
                             c.PRODUCTID ,            
                             c.SERIALNUMBER ,            
        c.[NAME] ,            
@@ -1528,10 +1603,14 @@ BEGIN
     c.ISZEROTOUCHALLOWED, PRODUCT.ORGNAME, PRODUCT.ISADDKEYSETAPPLICABLE ,      
     PRODUCT.MSSPMONTHLYOPTION, C.ISNETWORKPRODUCT,PRODUCT.EMAILADDRESS,      
     PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT        
-    ,PRODUCTCHOICEID , C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY   
+    ,PRODUCTCHOICEID , C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY,
+    ROW_NUMBER() OVER (ORDER BY C.SERIALNUMBER DESC) AS RowNum,
+    @SerialDescTotalCount AS TotalCount   
       FROM  CUSTOMERPRODUCTSSUMMARY C with (nolock)          
         ,  #TEMPLISTTABLE   AS PRODUCT   where   C.serialnumber=PRODUCT.serialnumber          
-              ORDER BY C.SERIALNUMBER DESC                                                            
+                    )
+                    SELECT * FROM SerialDescPaginatedResults 
+                    WHERE RowNum BETWEEN @SerialDescStartRow AND @SerialDescEndRow                                                            
                     RETURN                
                 END                
             ELSE             
@@ -1587,59 +1666,91 @@ BEGIN
  --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)    
             IF ( @OutformatXML = 0 )             
                 BEGIN                               
-                    SELECT DISTINCT            
-                           c.PRODUCTID ,            
-      c.SERIALNUMBER ,            
-      c.[NAME] ,            
-      c.CUSTOMERPRODUCTID ,            
-      c.STATUS ,            
-  c.REGISTRATIONCODE ,            
-      c.FIRMWAREVERSION ,            
-       PRODUCT.PRODUCTLINE ,            
-      c.PRODUCTFAMILY ,            
-      c.ACTIVEPROMOTION ,            
-      c.PROMOTIONID ,            
-      c.NFR ,            
-      PRODUCT.OWNEROFTHEPRODUCT ,            
-      PRODUCT.PRODUCTOWNER ,            
-      c.ISSUENAME ,            
-      c.RESOLUTIONNAME ,            
-  c.PRODUCTNAME ,            
-      c.PRODUCTGROUPID ,            
-      c.PRODUCTGROUPNAME ,            
-      c.DISPLAYKEYSET ,            
-      c.ASSOCIATIONTYPE ,            
-      c.GROUPHEADERTEXT ,            
-      c.ASSOCIATIONTYPEID ,            
-      C.SUPPORTDATE,            
-      c.ISEPRS ,            
-      c.REMOVEASSOCIATION ,            
-      c.DELETEDM ,            
-      C.CREATEDDATE AS REGISTRATIONDATE,       
-  -- CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,   
-   C.LASTPINGDATE  AS LASTPINGDATE,  
-      c.HGMSPROVISIONINGSTATUS,          
-      PRODUCT.ISDELETEALLOWED,          
-      PRODUCT.ISTRANSFERALLOWED,  
-   PRODUCT.ISRENAMEALLOWED,          
-      PRODUCT.ISSECUREUPGRADE,          
-      c.S1SVCSTATUS,          
-      c.SENTINELONEEXPIRYDATE,          
-      c.PRODUCTTYPE,          
-      c.EPAID ,          
-      c.SERVICELINE,          
-      c.ISBILLABLE,          
-      PRODUCT.ROLETYPE ,          
-      c.SASELICENSECOUNT,          
-      c.ISZEROTOUCHALLOWED,          
-      PRODUCT.ORGNAME,      
-   PRODUCT.ISADDKEYSETAPPLICABLE,          
-   PRODUCT.MSSPMONTHLYOPTION,C.ISNETWORKPRODUCT  , PRODUCT.EMAILADDRESS,      
-    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT,PRODUCTCHOICEID,  
- C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY  
-                    FROM  CUSTOMERPRODUCTSSUMMARY C with (nolock)          
-        ,  #TEMPLISTTABLE   AS PRODUCT   where   C.serialnumber=PRODUCT.serialnumber             
-                    ORDER BY C.SERIALNUMBER ASC                                                             
+                    -- Apply pagination logic for SERIALNUMBER ASC ordering
+                    DECLARE @SerialStartRow INT, @SerialEndRow INT, @SerialTotalCount INT
+                    SET @SerialStartRow = (@PAGENO - 1) * @PAGESIZE + 1
+                    SET @SerialEndRow = @PAGENO * @PAGESIZE
+
+                    -- Get total count first
+                    SELECT @SerialTotalCount = COUNT(*) 
+                    FROM CUSTOMERPRODUCTSSUMMARY C with (nolock)
+                    INNER JOIN #TEMPLISTTABLE AS PRODUCT ON C.serialnumber = PRODUCT.serialnumber
+
+                    -- Apply min/max count filters if specified
+                    IF (@MINCOUNT IS NOT NULL AND @SerialTotalCount < @MINCOUNT) OR 
+                       (@MAXCOUNT IS NOT NULL AND @SerialTotalCount > @MAXCOUNT)
+                    BEGIN
+                        SELECT 'No records match the count criteria' AS Message, 
+                               @SerialTotalCount AS TotalCount, 
+                               @MINCOUNT AS MinCount, 
+                               @MAXCOUNT AS MaxCount
+                        RETURN
+                    END
+
+                    ;WITH SerialPaginatedResults AS (
+                        SELECT DISTINCT            
+                               c.PRODUCTID ,            
+          c.SERIALNUMBER ,            
+          c.[NAME] ,            
+          c.CUSTOMERPRODUCTID ,            
+          c.STATUS ,            
+      c.REGISTRATIONCODE ,            
+          c.FIRMWAREVERSION ,            
+           PRODUCT.PRODUCTLINE ,            
+          c.PRODUCTFAMILY ,            
+          c.ACTIVEPROMOTION ,            
+          c.PROMOTIONID ,            
+          c.NFR ,            
+          PRODUCT.OWNEROFTHEPRODUCT ,            
+          PRODUCT.PRODUCTOWNER ,            
+          c.ISSUENAME ,            
+          c.RESOLUTIONNAME ,            
+      c.PRODUCTNAME ,            
+          c.PRODUCTGROUPID ,            
+          c.PRODUCTGROUPNAME ,            
+          c.DISPLAYKEYSET ,            
+          c.ASSOCIATIONTYPE ,            
+          c.GROUPHEADERTEXT ,            
+          c.ASSOCIATIONTYPEID ,            
+          C.SUPPORTDATE,            
+          c.ISEPRS ,            
+          c.REMOVEASSOCIATION ,            
+          c.DELETEDM ,            
+          C.CREATEDDATE AS REGISTRATIONDATE,       
+      -- CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,   
+       C.LASTPINGDATE  AS LASTPINGDATE,  
+          c.HGMSPROVISIONINGSTATUS,          
+          PRODUCT.ISDELETEALLOWED,          
+          PRODUCT.ISTRANSFERALLOWED,  
+       PRODUCT.ISRENAMEALLOWED,          
+          PRODUCT.ISSECUREUPGRADE,          
+          c.S1SVCSTATUS,          
+          c.SENTINELONEEXPIRYDATE,          
+          c.PRODUCTTYPE,          
+          c.EPAID ,          
+          c.SERVICELINE,          
+          c.ISBILLABLE,          
+          PRODUCT.ROLETYPE ,          
+          c.SASELICENSECOUNT,          
+          c.ISZEROTOUCHALLOWED,          
+          PRODUCT.ORGNAME,      
+       PRODUCT.ISADDKEYSETAPPLICABLE,          
+       PRODUCT.MSSPMONTHLYOPTION,
+       C.ISNETWORKPRODUCT, 
+       PRODUCT.EMAILADDRESS,      
+        PRODUCT.DESCRIPTION , 
+        PRODUCT.ISSHAREDTENANT,
+        PRODUCTCHOICEID,  
+     C.VULTOOLTIPTEXT, 
+     C.VULHREFTEXT,
+     C.VULSEVERITY,
+     ROW_NUMBER() OVER (ORDER BY C.SERIALNUMBER ASC) AS RowNum,
+     @SerialTotalCount AS TotalCount  
+                        FROM  CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+            ,  #TEMPLISTTABLE   AS PRODUCT   where   C.serialnumber=PRODUCT.serialnumber             
+                    )
+                    SELECT * FROM SerialPaginatedResults 
+                    WHERE RowNum BETWEEN @SerialStartRow AND @SerialEndRow                                                             
                     RETURN                 
                 END                
     ELSE             
@@ -1865,8 +1976,7 @@ C.PROMOTIONID ,
        PRODUCT.ISTRANSFERALLOWED,          
        PRODUCT.ISRENAMEALLOWED,          
        PRODUCT.ISSECUREUPGRADE,          
-       C.SUPPORTDATE,          
-       C.SENTINELONEEXPIRYDATE,C.PRODUCTTYPE,C.EPAID ,C.SERVICELINE ,C.ISBILLABLE,PRODUCT.ROLETYPE ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED,      
+          C.SENTINELONEEXPIRYDATE,C.PRODUCTTYPE,C.EPAID ,C.SERVICELINE ,C.ISBILLABLE,PRODUCT.ROLETYPE ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED,      
     PRODUCT. ORGNAME, PRODUCT.ISADDKEYSETAPPLICABLE, PRODUCT.MSSPMONTHLYOPTION, C.ISNETWORKPRODUCT    , PRODUCT.EMAILADDRESS,      
     PRODUCT.DESCRIPTION  , PRODUCT.ISSHAREDTENANT ,PRODUCTCHOICEID, C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY,CU.MANAGEMENTOPTION        
                     FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
@@ -2577,8 +2687,305 @@ END
               
               --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)  
                
-            IF @PRODUCTLIST = 'LIMIT'             
-                        BEGIN                                
+                         IF @PRODUCTLIST = 'LIMIT'             
+                         BEGIN     
+                             -- Apply pagination logic for LIMITED results
+                             DECLARE @LimitStartRow INT, @LimitEndRow INT, @LimitTotalCount INT
+                             SET @LimitStartRow = (@PAGENO - 1) * @PAGESIZE + 1
+                             SET @LimitEndRow = @PAGENO * @PAGESIZE
+
+                             -- Get total count first
+                             SELECT @LimitTotalCount = COUNT(*) 
+                             FROM CUSTOMERPRODUCTSSUMMARY C with (nolock)
+                             INNER JOIN #TEMPLISTTABLE AS PRODUCT ON C.serialnumber = PRODUCT.serialnumber
+
+                             -- Apply min/max count filters if specified
+                             IF (@MINCOUNT IS NOT NULL AND @LimitTotalCount < @MINCOUNT) OR 
+                                (@MAXCOUNT IS NOT NULL AND @LimitTotalCount > @MAXCOUNT)
+                             BEGIN
+                                 SELECT 'No records match the count criteria' AS Message, 
+                                        @LimitTotalCount AS TotalCount, 
+                                        @MINCOUNT AS MinCount, 
+                                        @MAXCOUNT AS MaxCount
+                                 RETURN
+                             END
+
+                             ;WITH LimitedPaginatedResults AS (
+                                 SELECT DISTINCT            
+                                C.PRODUCTID ,            
+                                C.SERIALNUMBER ,            
+                                C.[NAME] ,            
+                                C.CUSTOMERPRODUCTID ,            
+                                C.STATUS ,            
+                                C.REGISTRATIONCODE ,            
+                                C.FIRMWAREVERSION ,            
+                                 PRODUCT.PRODUCTLINE ,            
+                                C.PRODUCTFAMILY ,            
+                                C.ACTIVEPROMOTION ,            
+                                C.PROMOTIONID ,            
+                                C.NFR ,            
+                                PRODUCT.OWNEROFTHEPRODUCT ,            
+                                PRODUCT.PRODUCTOWNER ,            
+                                C.ISSUENAME ,            
+                                C.RESOLUTIONNAME ,            
+                                C.PRODUCTNAME ,            
+                                C.PRODUCTGROUPID ,            
+                                C.PRODUCTGROUPNAME ,            
+                                PRODUCT.PARTYGROUPNAMES,          
+                                C.RELEASESTATUS,          
+                                C.DISPLAYKEYSET ,            
+                                C.ASSOCIATIONTYPE ,            
+                                C.GROUPHEADERTEXT ,            
+                                C.ASSOCIATIONTYPEID ,            
+                                C.ISEPRS ,            
+                                C.CREATEDDATE AS REGISTRATIONDATE ,      
+                             --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,    
+                          C.LASTPINGDATE AS LASTPINGDATE,  
+                                C.REMOVEASSOCIATION ,            
+                          C.DELETEDM ,            
+                                C.REGCODE ,            
+                                C.HGMSPROVISIONINGSTATUS,          
+                              C.MCAFEEORDER,          
+                                C.DEVICESTATUS,          
+                                PRODUCT.ISDELETEALLOWED,          
+                                PRODUCT.ISTRANSFERALLOWED,          
+                                PRODUCT.ISRENAMEALLOWED,          
+                                PRODUCT.ISSECUREUPGRADE,          
+                                C.PTAB,          
+                                C.LTAB,          
+                                C.CBKUPTAB,          
+                                C.FWTAB,          
+                                C.S1SVCSTATUS,          
+                                C.SENTINELONEEXPIRYDATE,          
+                                C.PRODUCTTYPE,          
+                                PRODUCT.LICENSEEXPIRYCNT,          
+                                PRODUCT.SOONEXPIRINGCNT,          
+                                PRODUCT.ACTIVELICENSECNT,          
+                                PRODUCT.ISLICENSEEXPIRED,          
+                           PRODUCT.ISSOONEXPIRING,          
+                                PRODUCT.MINLICENSEEXPIRYDATE,          
+                                PRODUCT.SOONEXPIRYDATE,          
+                                PRODUCT.CCNODECOUNT,          
+                                PRODUCT.HESNODECOUNT,          
+                                PRODUCT.CASNODECOUNT,          
+                              PRODUCT.GMSNODECOUNT,
+                              C.EPAID ,
+                              C.SERVICELINE,
+                              C.ISBILLABLE,          
+                               -- C.ISDOWNLOADAVAILABLE,       
+                                C.UPDATESAVAILABLE 'ISDOWNLOADAVAILABLE',          
+                                C.ISZTSUPPORTED ,          
+                                C.SUPPORTEXPIRYDATE,          
+                                C.NONSUPPORTEXPIRYDATE,
+                                PRODUCT.SASELICENSECOUNT,
+                                C.ISZEROTOUCHALLOWED, 
+                                PRODUCT.ORGNAME, 
+                                PRODUCT.ISADDKEYSETAPPLICABLE, 
+                                PRODUCT.MSSPMONTHLYOPTION,
+                                C.ISNETWORKPRODUCT,      
+                                PRODUCT.EMAILADDRESS,      
+                                PRODUCT.DESCRIPTION , 
+                                PRODUCT.ISSHAREDTENANT ,
+                                PRODUCTCHOICEID,
+                                C.VULTOOLTIPTEXT, 
+                                C.VULHREFTEXT,
+                                C.VULSEVERITY, 
+                                CU.MANAGEMENTOPTION,
+                                ROW_NUMBER() OVER (ORDER BY C.CREATEDDATE DESC) AS RowNum,
+                                @LimitTotalCount AS TotalCount
+                                             FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+                                inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber  
+                             Left join CUSTOMERPRODUCTS CU WITH (NOLOCK) ON CU.SERIALNUMBER = C.serialnumber  
+                             )
+                             SELECT * FROM LimitedPaginatedResults 
+                             WHERE RowNum BETWEEN @LimitStartRow AND @LimitEndRow                                                            
+                             RETURN               
+                        END             
+                    ELSE             
+                        BEGIN      
+            
+       --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)  
+                 
+          
+                                               -- Apply pagination logic
+                        DECLARE @StartRow INT, @EndRow INT
+                        SET @StartRow = (@PAGENO - 1) * @PAGESIZE + 1
+                        SET @EndRow = @PAGENO * @PAGESIZE
+
+                        -- Get total count first
+                        DECLARE @TotalCount INT
+                        SELECT @TotalCount = COUNT(*) 
+                        FROM CUSTOMERPRODUCTSSUMMARY C with (nolock)
+                        INNER JOIN #TEMPLISTTABLE AS t ON C.serialnumber = t.serialnumber
+
+                        -- Apply min/max count filters if specified
+                        IF (@MINCOUNT IS NOT NULL AND @TotalCount < @MINCOUNT) OR 
+                           (@MAXCOUNT IS NOT NULL AND @TotalCount > @MAXCOUNT)
+                        BEGIN
+                            -- Return empty result set if count doesn't meet criteria
+                            SELECT 'No records match the count criteria' AS Message, 
+                                   @TotalCount AS TotalCount, 
+                                   @MINCOUNT AS MinCount, 
+                                   @MAXCOUNT AS MaxCount
+                            RETURN
+                        END
+
+                        ;WITH PaginatedResults AS (
+                            SELECT DISTINCT              
+                             t.CID,             
+                             C.PRODUCTID ,              
+                             C.SERIALNUMBER ,              
+                             C.[NAME] ,              
+                             C.CUSTOMERPRODUCTID ,              
+                             C.STATUS ,              
+                             C.REGISTRATIONCODE ,              
+                             C.FIRMWAREVERSION ,              
+                              t.PRODUCTLINE ,                
+                             C.PRODUCTFAMILY ,              
+                             C.ACTIVEPROMOTION ,              
+                             C.PROMOTIONID ,              
+                             C.NFR ,              
+                            t.OWNEROFTHEPRODUCT ,              
+                             t.PRODUCTOWNER ,              
+                             C.ISSUENAME ,              
+                             C.RESOLUTIONNAME ,              
+                             C.PRODUCTNAME ,              
+                             C.PRODUCTGROUPID ,          
+                             C.PRODUCTGROUPNAME ,            
+                             t.PARTYGROUPNAMES,            
+                             C.RELEASESTATUS,            
+                             C.DISPLAYKEYSET ,              
+                             C.ASSOCIATIONTYPE ,              
+                             C.GROUPHEADERTEXT ,              
+                             C.ASSOCIATIONTYPEID ,              
+                             C.ISEPRS ,              
+                             C.CREATEDDATE AS REGISTRATIONDATE ,       
+                             --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,  
+                          C.LASTPINGDATE AS LASTPINGDATE,  
+                             C.REMOVEASSOCIATION ,              
+                             C.DELETEDM ,              
+                             C.REGCODE ,              
+                             t.NEEDEDFIRMWAREVERSION ,              
+                             t.FIRMWARESTATUS ,              
+                             t.FIRMWARETEXT ,              
+                             C.SRLNOSTATUS ,              
+                             C.RELEASENOTES ,              
+                             C.HGMSPROVISIONINGSTATUS,            
+                             C.MCAFEEORDER,            
+                             C.DEVICESTATUS,            
+                             t.ISDELETEALLOWED,            
+                             t.ISTRANSFERALLOWED,            
+                             t.ISRENAMEALLOWED,            
+                             t.ISSECUREUPGRADE,            
+                             C.SUPPORTDATE,            
+                             t.PRODUCTGROUPNAMES,            
+                             C.PTAB,            
+                             C.LTAB,            
+                             C.CBKUPTAB,            
+                             C.FWTAB,            
+                             C.S1SVCSTATUS,            
+                             C.SENTINELONEEXPIRYDATE,            
+                             C.PRODUCTTYPE,            
+                             t.LICENSEEXPIRYCNT,            
+                             t.SOONEXPIRINGCNT,            
+                             t.ACTIVELICENSECNT,            
+                             t.ISLICENSEEXPIRED,            
+                             t.ISSOONEXPIRING,            
+                             t.MINLICENSEEXPIRYDATE,            
+                             t.SOONEXPIRYDATE,            
+                             t.CCNODECOUNT,            
+                             t.HESNODECOUNT,            
+                            t.CASNODECOUNT,            
+                             t.GMSNODECOUNT,          
+                             C.EPAID ,          
+                             C.SERVICELINE,          
+                             C.ISBILLABLE ,            
+                            --C.ISDOWNLOADAVAILABLE,       
+                                                     C.UPDATESAVAILABLE 'ISDOWNLOADAVAILABLE',            
+                             C.ISZTSUPPORTED,            
+                             C.SUPPORTEXPIRYDATE,            
+                             C.NONSUPPORTEXPIRYDATE ,            
+                             t.ROLETYPE ,          
+                             t.SASELICENSECOUNT,          
+                             C.ISZEROTOUCHALLOWED,           
+                             t.ORGNAME,      
+                             t.ISADDKEYSETAPPLICABLE,      
+                             t.MSSPMONTHLYOPTION,      
+                             C.ISNETWORKPRODUCT,       
+                             t.EMAILADDRESS,      
+                             t.DESCRIPTION , 
+                             t.ISSHAREDTENANT,
+                             PRODUCTCHOICEID,
+                             C.VULTOOLTIPTEXT, 
+                             C.VULHREFTEXT,
+                             C.VULSEVERITY,
+                             t.MANAGEMENTOPTION,
+                             t.ORGID,
+                             ROW_NUMBER() OVER (ORDER BY C.CREATEDDATE DESC) AS RowNum,
+                             @TotalCount AS TotalCount
+                           FROM  CUSTOMERPRODUCTSSUMMARY C with (nolock)  
+                           INNER JOIN #TEMPLISTTABLE AS t ON C.serialnumber = t.serialnumber          
+                        )
+                        SELECT * FROM PaginatedResults 
+                        WHERE RowNum BETWEEN @StartRow AND @EndRow          
+               
+   INSERT INTO @PRODGROUPTABLE (PRODUCTGROUPID, PRODUCTGROUPNAME)      
+       SELECT DISTINCT PRODUCTGROUPID, PRODUCTGROUPNAME FROM #TEMPLISTTABLE   AS t WHERE PRODUCTGROUPID IS NOT NULL        
+UPDATE @PRODGROUPTABLE      
+   SET TOTALPRODUCTSCNT = (SELECT COUNT(t.PRODUCTGROUPID)      
+                   FROM #TEMPLISTTABLE t      
+                  WHERE t.PRODUCTGROUPID = P.PRODUCTGROUPID)      
+  FROM @PRODGROUPTABLE P       
+      
+  UPDATE @PRODGROUPTABLE      
+   SET EXPIREDPRODUCTSCNT = (SELECT COUNT(t.PRODUCTGROUPID)      
+                   FROM #TEMPLISTTABLE t      
+                  WHERE t.PRODUCTGROUPID = P.PRODUCTGROUPID      
+      AND ISLICENSEEXPIRED = 1 AND MINLICENSEEXPIRYDATE IS NOT NULL)      
+  FROM @PRODGROUPTABLE P       
+      
+  UPDATE @PRODGROUPTABLE      
+   SET SOONEXPIRINGPRODDUCTSCNT = (SELECT COUNT(t.PRODUCTGROUPID)      
+                   FROM #TEMPLISTTABLE t      
+                  WHERE t.PRODUCTGROUPID = P.PRODUCTGROUPID      
+      AND  ISSOONEXPIRING = 1 AND SOONEXPIRYDATE IS NOT NULL)      
+  FROM @PRODGROUPTABLE P       
+      
+  UPDATE @PRODGROUPTABLE      
+   SET ACTIVEPRODUCTSCNT = ISNULL((SELECT SUM(ACTIVELICENSECNT)       
+                   FROM #TEMPLISTTABLE t      
+                  WHERE t.PRODUCTGROUPID = P.PRODUCTGROUPID),0)      
+  FROM @PRODGROUPTABLE P       
+      
+   UPDATE @PRODGROUPTABLE      
+    SET FIREWALLCNT =  (SELECT COUNT(t.PRODUCTGROUPID)      
+                   FROM #TEMPLISTTABLE t,  CUSTOMERPRODUCTSSUMMARY C with (nolock)         
+                  WHERE t.PRODUCTGROUPID = P.PRODUCTGROUPID      
+      AND C.serialnumber=t.serialnumber              
+      AND  C.PRODUCTTYPE = 'Firewall')      
+   FROM @PRODGROUPTABLE P      
+      
+  UPDATE @PRODGROUPTABLE      
+    SET ACCESSPOINTCNT =  (SELECT COUNT(t.PRODUCTGROUPID)      
+                  FROM #TEMPLISTTABLE t,  CUSTOMERPRODUCTSSUMMARY C with (nolock)         
+                  WHERE t.PRODUCTGROUPID = P.PRODUCTGROUPID      
+      AND C.serialnumber=t.serialnumber              
+      AND  C.PRODUCTTYPE = 'Access Points')      
+   FROM @PRODGROUPTABLE P       
+      
+       
+  IF ISNULL(@APPLICATIONNAME,'') <> 'MSWANDROID' AND @ISPRODUCTGROUPTABLENEEDED = 'YES'      
+ BEGIN      
+  SELECT * FROM @PRODGROUPTABLE      
+ END      
+                  RETURN                    
+                        END                 
+              END                
+            ELSE             
+                BEGIN      
+ --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)      
+                   IF @PRODUCTLIST = 'LIMIT'             
+                        BEGIN              
                             SELECT DISTINCT TOP 10            
        C.PRODUCTID ,            
        C.SERIALNUMBER ,            
@@ -2599,57 +3006,913 @@ END
        C.PRODUCTNAME ,            
        C.PRODUCTGROUPID ,            
        C.PRODUCTGROUPNAME ,            
-       PRODUCT.PARTYGROUPNAMES,          
-       C.RELEASESTATUS,          
        C.DISPLAYKEYSET ,            
        C.ASSOCIATIONTYPE ,            
        C.GROUPHEADERTEXT ,            
-       C.ASSOCIATIONTYPEID ,            
        C.ISEPRS ,            
-       C.CREATEDDATE AS REGISTRATIONDATE ,      
-    --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,    
+       C.CREATEDDATE AS REGISTRATIONDATE,       
+    --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,   
  C.LASTPINGDATE AS LASTPINGDATE,  
-       C.REMOVEASSOCIATION ,            
- C.DELETEDM ,            
-       C.REGCODE ,            
-       C.CREATEDDATE AS REGISTRATIONDATE,            
        C.HGMSPROVISIONINGSTATUS,          
-     C.MCAFEEORDER,          
        C.DEVICESTATUS,          
        PRODUCT.ISDELETEALLOWED,          
        PRODUCT.ISTRANSFERALLOWED,          
        PRODUCT.ISRENAMEALLOWED,          
        PRODUCT.ISSECUREUPGRADE,          
-       C.PTAB,          
        C.LTAB,          
-       C.CBKUPTAB,          
+     C.CBKUPTAB,          
        C.FWTAB,          
-       C.S1SVCSTATUS,          
-       C.SENTINELONEEXPIRYDATE,          
+       C.SENTINELONEEXPIRYDATE  ,         
        C.PRODUCTTYPE,          
        PRODUCT.LICENSEEXPIRYCNT,          
        PRODUCT.SOONEXPIRINGCNT,          
-       PRODUCT.ACTIVELICENSECNT,          
-       PRODUCT.ISLICENSEEXPIRED,          
-  PRODUCT.ISSOONEXPIRING,          
+       PRODUCT.ACTIVELICENSECNT,     
        PRODUCT.MINLICENSEEXPIRYDATE,          
-       PRODUCT.SOONEXPIRYDATE,          
-       PRODUCT.CCNODECOUNT,          
-       PRODUCT.HESNODECOUNT,          
-       PRODUCT.CASNODECOUNT,          
-     PRODUCT.GMSNODECOUNT,C.EPAID ,C.SERVICELINE,C.ISBILLABLE ,          
-      -- C.ISDOWNLOADAVAILABLE,       
-       C.UPDATESAVAILABLE 'ISDOWNLOADAVAILABLE',          
-       C.ISZTSUPPORTED ,          
+       PRODUCT.SOONEXPIRYDATE,C.EPAID ,C.SERVICELINE,C.ISBILLABLE ,          
        C.SUPPORTEXPIRYDATE,          
-       C.NONSUPPORTEXPIRYDATE,PRODUCT.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED, PRODUCT.ORGNAME, PRODUCT.ISADDKEYSETAPPLICABLE, PRODUCT.MSSPMONTHLYOPTION,C.ISNETWORKPRODUCT      
-    , PRODUCT.EMAILADDRESS,      
-    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT ,PRODUCTCHOICEID,C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY, CU.MANAGEMENTOPTION       
+       C.NONSUPPORTEXPIRYDATE ,          
+       PRODUCT.ROLETYPE  ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED, PRODUCT.ORGNAME, PRODUCT.ISADDKEYSETAPPLICABLE,      
+    PRODUCT.MSSPMONTHLYOPTION,      
+    C.ISNETWORKPRODUCT , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT ,PRODUCTCHOICEID ,C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY,PRODUCT.MANAGEMENTOPTION,PRODUCT.ORGID       
+      FROM  CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+        ,  #TEMPLISTTABLE   AS PRODUCT   where   C.serialnumber=PRODUCT.serialnumber          
+                            ORDER BY C.CREATEDDATE DESC            
+                            FOR     XML AUTO ,            
+           ELEMENTS                                     
+    RETURN               
+                        END            
+ ELSE             
+                        BEGIN       
+ --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)        
+                            SELECT DISTINCT            
+     C.PRODUCTID ,            
+        C.SERIALNUMBER ,            
+        C.[NAME] ,            
+        C.CUSTOMERPRODUCTID ,            
+        C.STATUS ,            
+        C.REGISTRATIONCODE ,            
+        C.FIRMWAREVERSION ,            
+         PRODUCT.PRODUCTLINE ,            
+        C.PRODUCTFAMILY ,            
+        C.ACTIVEPROMOTION ,            
+        C.PROMOTIONID ,            
+        C.NFR ,            
+        PRODUCT.OWNEROFTHEPRODUCT ,            
+        PRODUCT.PRODUCTOWNER ,            
+        C.ISSUENAME ,            
+        C.RESOLUTIONNAME ,            
+        C.PRODUCTNAME ,            
+        C.PRODUCTGROUPID ,            
+        C.PRODUCTGROUPNAME ,            
+        C.DISPLAYKEYSET ,            
+        C.ASSOCIATIONTYPE ,            
+        C.GROUPHEADERTEXT ,            
+        C.ISEPRS ,            
+        C.CREATEDDATE AS REGISTRATIONDATE,      
+  --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,         
+  C.LASTPINGDATE AS LASTPINGDATE,  
+        C.HGMSPROVISIONINGSTATUS,          
+        C.DEVICESTATUS,          
+        PRODUCT.ISDELETEALLOWED,          
+        PRODUCT.ISTRANSFERALLOWED,          
+        PRODUCT.ISRENAMEALLOWED,          
+        PRODUCT.ISSECUREUPGRADE,          
+        C.SUPPORTDATE,          
+        c.SENTINELONEEXPIRYDATE,          
+        c.PRODUCTTYPE,          
+        c.EPAID ,          
+        c.SERVICELINE,          
+        c.ISBILLABLE,          
+        PRODUCT.ROLETYPE ,          
+        c.SASELICENSECOUNT,          
+        c.ISZEROTOUCHALLOWED,          
+        PRODUCT.ORGNAME,       
+   PRODUCT.ISADDKEYSETAPPLICABLE,          
+   PRODUCT.MSSPMONTHLYOPTION,      
+   C.ISNETWORKPRODUCT  , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT ,PRODUCTCHOICEID,  
+  C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY  
+                    FROM  CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+        ,  #TEMPLISTTABLE   AS PRODUCT   where   C.serialnumber=PRODUCT.serialnumber             
+              ORDER BY C.CREATEDDATE DESC            
+                  FOR     XML AUTO ,            
+  ELEMENTS                                     
+                    RETURN                  
+                END                                
+        END                  
+                                  
+    IF @ORDERNAME = 'NAME'            
+        AND @ORDERTYPE = '1'             
+        BEGIN       
+      
+            IF ( @OutformatXML = 0 )             
+             BEGIN              
+                    IF ( @CallFrom = 'MYGROUPS' )             
+                        BEGIN            
+                                                  
+                            SELECT DISTINCT            
+       C.PRODUCTID ,            
+       C.SERIALNUMBER ,            
+       C.PRIMARYSERIALNUMBER ,            
+       C.ASSOCIATIONNAME ,            
+       C.[NAME] ,            
+       C.CUSTOMERPRODUCTID ,            
+       C.STATUS ,            
+       REPLACE(ISNULL(C.REGISTRATIONCODE, ''), ' ',            
+       '-') 'REGISTRATIONCODE' ,            
+       C.FIRMWAREVERSION ,            
+        PRODUCT.PRODUCTLINE ,            
+       C.PRODUCTFAMILY ,            
+       C.ACTIVEPROMOTION ,            
+       C. PROMOTIONID ,            
+       C.NFR ,            
+       PRODUCT.OWNEROFTHEPRODUCT ,            
+       PRODUCT. PRODUCTOWNER ,            
+       C.ISSUENAME ,            
+       C.RESOLUTIONNAME ,            
+       C.PRODUCTNAME ,            
+       PGD.PRODUCTGROUPID ,            
+       PG.PRODUCTGROUPNAME ,            
+       C.DISPLAYKEYSET ,            
+       C. ASSOCIATIONTYPE ,          
+       C.GROUPHEADERTEXT ,            
+  C.ASSOCIATIONTYPEID ,            
+       CONVERT(DATETIME,C. REGISTRATIONCODE) 'SUPPORTDATE' ,            
+       C.ISEPRS ,            
+       C.REMOVEASSOCIATION ,            
+       C.DELETEDM ,            
+       C.CREATEDDATE AS REGISTRATIONDATE,      
+    --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,     
+ C.LASTPINGDATE AS LASTPINGDATE,  
+       C.HGMSPROVISIONINGSTATUS,          
+       C.MCAFEEORDER,          
+       C.RELEASESTATUS,          
+       PRODUCT.PARTYGROUPIDS,          
+       C.PARTYGROUPNAME 'PARTYGROUPNAME',          
+       PRODUCT.PARTYGROUPNAMES,          
+       C.DEVICESTATUS,          
+       PRODUCT.PRODUCTGROUPNAMES,          
+       PRODUCT.PRODUCTGROUPIDS,          
+       C.FWTAB ,          
+       C.PTAB ,          
+       C.LTAB ,          
+       C.CBKUPTAB,          
+       C.ASSOCTYPEINTNAME,          
+       PRODUCT. ISDELETEALLOWED,          
+       PRODUCT.ISTRANSFERALLOWED,          
+       PRODUCT.ISRENAMEALLOWED,          
+       PRODUCT.ISSECUREUPGRADE,          
+       C.S1SVCSTATUS,          
+       C.SENTINELONEEXPIRYDATE,C.PRODUCTTYPE,C.EPAID ,C.SERVICELINE ,C.ISBILLABLE,PRODUCT.ROLETYPE ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED,       
+    PRODUCT.ORGNAME  , PRODUCT.ISADDKEYSETAPPLICABLE, PRODUCT.MSSPMONTHLYOPTION, C.ISNETWORKPRODUCT    , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT,PRODUCTCHOICEID,C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY        
                             FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
-       inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber  
-    Left join CUSTOMERPRODUCTS CU WITH (NOLOCK) ON CU.SERIALNUMBER = C.serialnumber  
-                         ORDER BY C.CREATEDDATE DESC                                                            
-                            RETURN               
+       inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber           
+                                    LEFT OUTER JOIN PRODUCTGROUPDETAIL PGD            
+                                    WITH ( NOLOCK ) ON PGD.SERIALNUMBER = PRODUCT.SERIALNUMBER            
+                                    LEFT OUTER JOIN PRODUCTGROUP PG WITH ( NOLOCK ) ON PG.PRODUCTGROUPID = PGD.PRODUCTGROUPID            
+   ORDER BY [NAME] ASC ,            
+                              C.PRIMARYSERIALNUMBER DESC             
+                                   
+            SELECT * FROM @GROUPTABLE                                
+                 RETURN                 
+          END                
+                    ELSE             
+                        BEGIN                
+      
+           --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)  
+      
+      
+                            SELECT DISTINCT            
+       C.PRODUCTID ,            
+       C.SERIALNUMBER ,            
+       C.PRIMARYSERIALNUMBER ,            
+       C.ASSOCIATIONNAME ,            
+       C.[NAME] ,            
+       C.CUSTOMERPRODUCTID ,            
+       C.STATUS ,            
+       REPLACE(ISNULL(C.REGISTRATIONCODE, ''), ' ',            
+        '-') 'REGISTRATIONCODE' ,            
+       C.FIRMWAREVERSION ,            
+        PRODUCT.PRODUCTLINE ,            
+       C.PRODUCTFAMILY ,            
+       C.ACTIVEPROMOTION ,            
+       C.PROMOTIONID ,            
+       C.NFR ,            
+       PRODUCT.OWNEROFTHEPRODUCT ,            
+       PRODUCT.PRODUCTOWNER ,            
+       C.ISSUENAME ,            
+       C.RESOLUTIONNAME ,            
+       C.PRODUCTNAME ,            
+       C.PRODUCTGROUPID ,            
+       C.PRODUCTGROUPNAME ,            
+       C.DISPLAYKEYSET ,            
+       C.ASSOCIATIONTYPE ,            
+       C.GROUPHEADERTEXT ,            
+       C.ASSOCIATIONTYPEID ,            
+       CONVERT(DATETIME, C.REGISTRATIONCODE) 'SUPPORTDATE' ,            
+       C.ISEPRS ,            
+       C.REMOVEASSOCIATION,            
+       C.DELETEDM ,            
+       C.CREATEDDATE AS REGISTRATIONDATE,       
+    --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,    
+   C.LASTPINGDATE AS LASTPINGDATE,  
+       C.HGMSPROVISIONINGSTATUS,          
+       C.MCAFEEORDER,          
+       C.RELEASESTATUS,          
+      PRODUCT.PARTYGROUPIDS,          
+       C.PARTYGROUPNAME 'PARTYGROUPNAME',          
+ PRODUCT.PARTYGROUPNAMES,          
+       C.DEVICESTATUS,          
+       PRODUCT.PRODUCTGROUPNAMES,          
+       PRODUCT.PRODUCTGROUPIDS,          
+       C.FWTAB ,          
+       C.PTAB ,          
+       C.LTAB ,          
+       C.CBKUPTAB,          
+       C.ASSOCTYPEINTNAME,          
+       PRODUCT.ISDELETEALLOWED,          
+       PRODUCT.ISTRANSFERALLOWED,          
+       PRODUCT.ISRENAMEALLOWED,          
+       PRODUCT.ISSECUREUPGRADE ,          
+       C.S1SVCSTATUS,          
+       C.SENTINELONEEXPIRYDATE ,C.PRODUCTTYPE ,C.EPAID ,C.SERVICELINE ,C.ISBILLABLE,PRODUCT.ROLETYPE ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED,       
+    PRODUCT.ORGNAME , PRODUCT.ISADDKEYSETAPPLICABLE , PRODUCT.MSSPMONTHLYOPTION,C.ISNETWORKPRODUCT  , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION  , PRODUCT.ISSHAREDTENANT , PRODUCT.CONNECTORNAME   ,PRODUCTCHOICEID,C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY      
+                           FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+       inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber           
+                            ORDER BY C.[NAME] ASC ,            
+                                    C.PRIMARYSERIALNUMBER DESC          
+                         
+        SELECT * FROM @GROUPTABLE               
+        RETURN            
+             END             
+                END               
+            ELSE             
+                BEGIN         
+         --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)  
+                    SELECT DISTINCT            
+      C.PRODUCTID ,            
+      C.SERIALNUMBER ,            
+      C.[NAME] ,            
+      C.CUSTOMERPRODUCTID ,            
+      C.STATUS ,            
+      C.REGISTRATIONCODE ,            
+      C.FIRMWAREVERSION ,            
+       PRODUCT.PRODUCTLINE ,            
+      C.PRODUCTFAMILY ,            
+      C.ACTIVEPROMOTION ,            
+      C.PROMOTIONID ,            
+      C.NFR ,            
+      PRODUCT.OWNEROFTHEPRODUCT ,            
+      PRODUCT.PRODUCTOWNER ,            
+      C.ISSUENAME ,            
+      C.RESOLUTIONNAME ,            
+      C.PRODUCTNAME ,            
+      C.PRODUCTGROUPID ,           
+      C.PRODUCTGROUPNAME ,            
+      C.DISPLAYKEYSET ,            
+      C.ASSOCIATIONTYPE ,            
+      C.GROUPHEADERTEXT ,            
+      C.ISEPRS ,            
+      C.CREATEDDATE AS REGISTRATIONDATE,      
+  -- CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,   
+  C.LASTPINGDATE AS LASTPINGDATE,  
+      C.HGMSPROVISIONINGSTATUS,                 
+      PRODUCT.ISDELETEALLOWED,     
+      PRODUCT.ISTRANSFERALLOWED,          
+      PRODUCT.ISRENAMEALLOWED,          
+      PRODUCT.ISSECUREUPGRADE,          
+      C.SENTINELONEEXPIRYDATE  ,C.PRODUCTTYPE,C.EPAID ,C.SERVICELINE ,C.ISBILLABLE,PRODUCT.ROLETYPE ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED,       
+   PRODUCT.ORGNAME    , PRODUCT.ISADDKEYSETAPPLICABLE, PRODUCT.MSSPMONTHLYOPTION, C.ISNETWORKPRODUCT, PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT  , PRODUCT.CONNECTORNAME  ,PRODUCTCHOICEID,C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY      
+                  FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+       inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber           
+                    ORDER BY C.[NAME] ASC            
+                    FOR     XML AUTO ,            
+                                ELEMENTS                                     
+                    RETURN                
+                END                    
+        END                
+                                  
+   IF @ORDERNAME = 'PRODUCTLINE'            
+        AND @ORDERTYPE = '0'             
+        BEGIN   
+ --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)    
+            IF ( @OutformatXML = 0 )             
+                BEGIN                                     
+                    SELECT DISTINCT            
+      C.PRODUCTID ,            
+      C.SERIALNUMBER ,            
+      C.PRIMARYSERIALNUMBER ,            
+      C.ASSOCIATIONNAME ,            
+      C.[NAME] ,            
+      C.CUSTOMERPRODUCTID ,            
+      C.STATUS ,            
+      C.REGISTRATIONCODE ,            
+      C.FIRMWAREVERSION ,            
+       PRODUCT.PRODUCTLINE ,            
+      C.PRODUCTFAMILY ,            
+      C.ACTIVEPROMOTION ,            
+      C.PROMOTIONID ,            
+      C.NFR ,            
+      PRODUCT.OWNEROFTHEPRODUCT ,            
+      PRODUCT.PRODUCTOWNER ,            
+      C.ISSUENAME ,            
+      C.RESOLUTIONNAME ,            
+      C.PRODUCTNAME ,            
+      C.PRODUCTGROUPID ,            
+      C.PRODUCTGROUPNAME ,            
+      C.DISPLAYKEYSET ,            
+      C.ASSOCIATIONTYPE ,            
+      C.GROUPHEADERTEXT ,            
+      C.ASSOCIATIONTYPEID ,            
+      C.ISEPRS ,            
+      C.REMOVEASSOCIATION ,            
+      C.DELETEDM ,            
+      C.REGCODE ,            
+      C.CREATEDDATE AS REGISTRATIONDATE,      
+  -- CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,     
+     C.LASTPINGDATE AS LASTPINGDATE,  
+      C.HGMSPROVISIONINGSTATUS,          
+      C.MCAFEEORDER,          
+      PRODUCT.ISDELETEALLOWED,          
+      PRODUCT.ISTRANSFERALLOWED,          
+      PRODUCT.ISRENAMEALLOWED,          
+      PRODUCT.ISSECUREUPGRADE,          
+      C.S1SVCSTATUS,          
+      C.SENTINELONEEXPIRYDATE,          
+      C.PRODUCTTYPE,          
+      C.EPAID ,          
+      C.SERVICELINE ,C.ISBILLABLE,          
+      PRODUCT.ROLETYPE,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED, PRODUCT.ORGNAME, PRODUCT.ISADDKEYSETAPPLICABLE, PRODUCT.MSSPMONTHLYOPTION , C.ISNETWORKPRODUCT   , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION  , PRODUCT.ISSHAREDTENANT      ,PRODUCTCHOICEID, C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY     
+                     FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+       inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber            
+                    ORDER BY  PRODUCT.PRODUCTLINE DESC                                                            
+                    RETURN                  
+              END                
+      ELSE             
+                BEGIN    
+ --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)      
+                    SELECT DISTINCT            
+     C.PRODUCTID ,            
+     C.SERIALNUMBER ,            
+     C.[NAME] ,            
+     C.CUSTOMERPRODUCTID ,            
+     C.STATUS ,            
+     C.REGISTRATIONCODE ,            
+     C.FIRMWAREVERSION ,            
+      PRODUCT.PRODUCTLINE ,            
+     C.PRODUCTFAMILY ,            
+     C.ACTIVEPROMOTION ,            
+     C.PROMOTIONID ,        
+     C.NFR ,            
+     PRODUCT.OWNEROFTHEPRODUCT ,            
+     PRODUCT.PRODUCTOWNER ,            
+     C.ISSUENAME ,         
+     C.RESOLUTIONNAME ,            
+     C.PRODUCTNAME ,            
+     C.PRODUCTGROUPID ,            
+     C.PRODUCTGROUPNAME ,            
+     C.DISPLAYKEYSET ,            
+     C.ASSOCIATIONTYPE ,            
+     C.GROUPHEADERTEXT ,            
+     C.ISEPRS ,            
+     C.REGCODE ,            
+     C.CREATEDDATE AS REGISTRATIONDATE,       
+  --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,    
+  C.LASTPINGDATE AS LASTPINGDATE,  
+     C.HGMSPROVISIONINGSTATUS,          
+     PRODUCT.ISDELETEALLOWED,          
+     PRODUCT.ISTRANSFERALLOWED,          
+     PRODUCT.ISRENAMEALLOWED,          
+     PRODUCT.ISSECUREUPGRADE,          
+     C.SENTINELONEEXPIRYDATE,C.PRODUCTTYPE,C.EPAID ,C.SERVICELINE ,C.ISBILLABLE,PRODUCT.ROLETYPE ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED,       
+  PRODUCT.ORGNAME, PRODUCT.ISADDKEYSETAPPLICABLE, PRODUCT.MSSPMONTHLYOPTION, C.ISNETWORKPRODUCT         
+  , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT ,PRODUCTCHOICEID , C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY   
+                      FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+       inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber           
+                    ORDER BY  PRODUCT.PRODUCTLINE DESC            
+                    FOR     XML AUTO ,            
+                                ELEMENTS               
+   RETURN                
+                END                                  
+        END                                  
+    IF @ORDERNAME = 'PRODUCTLINE'            
+        AND @ORDERTYPE = '1'             
+        BEGIN                
+            IF ( @OutformatXML = 0 )             
+                BEGIN                                      
+                    SELECT DISTINCT            
+    C. PRODUCTID ,            
+    C.SERIALNUMBER ,            
+    C.PRIMARYSERIALNUMBER ,            
+    C.ASSOCIATIONNAME ,            
+    C.[NAME] ,            
+    C.CUSTOMERPRODUCTID ,            
+    C.STATUS ,            
+    C.REGISTRATIONCODE ,            
+    C.FIRMWAREVERSION ,            
+     PRODUCT.PRODUCTLINE ,            
+    C.PRODUCTFAMILY ,            
+    C.ACTIVEPROMOTION ,            
+    C.PROMOTIONID ,            
+    C.NFR ,            
+    PRODUCT.OWNEROFTHEPRODUCT ,            
+    PRODUCT.PRODUCTOWNER ,            
+    C.ISSUENAME ,            
+    C.RESOLUTIONNAME ,            
+    C.PRODUCTNAME ,            
+    C.PRODUCTGROUPID ,            
+    C.PRODUCTGROUPNAME ,            
+    C.DISPLAYKEYSET ,            
+    C.ASSOCIATIONTYPE ,            
+    C.GROUPHEADERTEXT ,            
+    C.ASSOCIATIONTYPEID ,            
+    C.ISEPRS ,            
+    C.REMOVEASSOCIATION ,            
+    C.DELETEDM ,            
+    C.CREATEDDATE AS REGISTRATIONDATE,      
+ --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,  
+   C.LASTPINGDATE AS LASTPINGDATE,  
+    C.HGMSPROVISIONINGSTATUS,          
+    C.MCAFEEORDER,          
+    PRODUCT.ISDELETEALLOWED,          
+    PRODUCT.ISTRANSFERALLOWED,          
+    PRODUCT.ISRENAMEALLOWED,          
+    PRODUCT.ISSECUREUPGRADE,          
+    C.S1SVCSTATUS,          
+    C.SENTINELONEEXPIRYDATE,C.PRODUCTTYPE,C.EPAID ,C.SERVICELINE ,C.ISBILLABLE,PRODUCT.ROLETYPE ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED,       
+ PRODUCT.ORGNAME, PRODUCT.ISADDKEYSETAPPLICABLE, PRODUCT.MSSPMONTHLYOPTION, C.ISNETWORKPRODUCT        
+ , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT  ,PRODUCTCHOICEID, C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY      
+                      FROM CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+       inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber           
+                    ORDER BY  PRODUCT.PRODUCTLINE ASC                                   
+                    RETURN                  
+                END               
+            ELSE             
+                BEGIN       
+ --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)      
+                    SELECT DISTINCT            
+      C.PRODUCTID ,            
+      C.SERIALNUMBER ,            
+      C.[NAME] ,            
+      C.CUSTOMERPRODUCTID ,            
+C.STATUS ,            
+      C.REGISTRATIONCODE ,            
+      C.FIRMWAREVERSION ,            
+       PRODUCT.PRODUCTLINE ,            
+      C.PRODUCTFAMILY ,            
+      C.ACTIVEPROMOTION ,            
+      C.PROMOTIONID ,            
+    C.NFR ,            
+      PRODUCT. OWNEROFTHEPRODUCT ,            
+      PRODUCT. PRODUCTOWNER ,            
+      C.ISSUENAME ,            
+      C.RESOLUTIONNAME ,            
+      C.PRODUCTNAME ,            
+      C.PRODUCTGROUPID ,            
+      C.PRODUCTGROUPNAME ,            
+      C.DISPLAYKEYSET ,            
+      C.ASSOCIATIONTYPE ,            
+      C.GROUPHEADERTEXT ,            
+      C.ISEPRS ,            
+      C.CREATEDDATE AS REGISTRATIONDATE,      
+   --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,       
+     C.LASTPINGDATE AS LASTPINGDATE,  
+      C.HGMSPROVISIONINGSTATUS,          
+      C.SENTINELONEEXPIRYDATE,C.PRODUCTTYPE,C.EPAID ,C.SERVICELINE ,C.ISBILLABLE,PRODUCT.ROLETYPE ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED,       
+   PRODUCT.ORGNAME, PRODUCT.ISADDKEYSETAPPLICABLE, PRODUCT.MSSPMONTHLYOPTION ,C.ISNETWORKPRODUCT      
+   , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT      ,PRODUCTCHOICEID, C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY   
+                     FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+       inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber           
+          ORDER BY  PRODUCT.PRODUCTLINE ASC            
+     FOR     XML AUTO ,            
+                         ELEMENTS                        
+     RETURN                
+                END            
+        END                
+            
+    IF @ORDERNAME = 'REGISTEREDDATE'            
+        AND @ORDERTYPE = '0'             
+        BEGIN          
+          
+   IF ISNULL(@ISMSSPUSER, '') <> ''  AND EXISTS (SELECT ORGANIZATIONID FROM ORGANIZATION WITH (NOLOCK)      
+  WHERE ORGANIZATIONID = @ORGID AND MASTERMSSP = 1)      
+ BEGIN -- Master MSSP user, show all products from mssp orgs which are marked as MSSPMONHTLY = YES      
+      
+  CREATE TABLE #tMSSPIDS         
+  (        
+  MSSPID INT,        
+  MSSPNAME NVARCHAR(50),        
+  MASTERMSSP BIT DEFAULT(0)        
+  )          
+        
+  CREATE TABLE #MSSPTENANTS        
+  (ID INT IDENTITY        
+  ,TENANTNAME VARCHAR(255)        
+  ,TENANTID INT        
+  ,MSSPNAME VARCHAR(50)        
+  ,MSSPID INT        
+  )        
+          
+  CREATE TABLE #MSSPPRODUCTSERVICES        
+  (          
+  ID BIGINT IDENTITY(1,1)          
+  ,TENANTID INT          
+  ,SERIALNUMBER VARCHAR(50)       
+  ,PRODUCTID INT           
+  )        
+        
+  CREATE TABLE #UNLISTEDPRODUCTS        
+  (TENANTID INT        
+  ,PRODUCTID INT        
+  ,SERIALNUMBER VARCHAR(50)        
+  )        
+      
+   INSERT INTO #tMSSPIDS        
+   SELECT MM.MASTERMSSPID,MM.MSSPNAME, MM.MSSPORGANIZATIONID FROM MASTERMSSP MM WITH (NOLOCK)        
+      WHERE  MM.MASTERORGANIZATIONID = @ORGID AND ISNULL(MM.MSSPORGANIZATIONID,0) <> 0;       
+      
+    INSERT INTO #MSSPTENANTS(TENANTID, TENANTNAME, MSSPID, MSSPNAME)            
+   SELECT P.PRODUCTGROUPID, P.PRODUCTGROUPNAME, M.MSSPID, M.MSSPNAME             
+   FROM PRODUCTGROUP P WITH (NOLOCK), #tMSSPIDS M WITH ( NOLOCK ), DBO.FNMSSPTENANTSLIST (@USERNAME)MP      
+   WHERE P.MASTERMSSPID = M.MSSPID AND MP.PRODUCTGROUPID = P.PRODUCTGROUPID          
+       
+   INSERT INTO #MSSPPRODUCTSERVICES ( TENANTID, SERIALNUMBER, PRODUCTID)        
+   SELECT PD.PRODUCTGROUPID,  PD.SERIALNUMBER, M.PRODUCTID       
+   FROM #MSSPTENANTS MT WITH (NOLOCK), PRODUCTGROUPDETAIL PD WITH (NOLOCK),       
+   MSSPPRODUCTSERVICESSUMMARY M WITH (NOLOCK),       
+   CUSTOMERPRODUCTS CP WITH (NOLOCK) WHERE MT.TENANTID = PD.PRODUCTGROUPID AND      
+   PD.SERIALNUMBER = M.SERIALNUMBER AND PD.SERIALNUMBER = CP.SERIALNUMBER AND       
+   CP.MSSPMONTHLY = 'YES' AND M.STATUS = 'ACTIVE'       
+   GROUP BY PD.PRODUCTGROUPID, PD.SERIALNUMBER, M.PRODUCTID;      
+       
+         
+   INSERT INTO #UNLISTEDPRODUCTS         
+   SELECT PD.PRODUCTGROUPID, CP.PRODUCTID, PD.SERIALNUMBER         
+   FROM #MSSPTENANTS MT, PRODUCTGROUPDETAIL PD WITH (NOLOCK), CUSTOMERPRODUCTS CP WITH (NOLOCK) WHERE       
+   MT.TENANTID = PD.PRODUCTGROUPID AND PD.SERIALNUMBER = CP.SERIALNUMBER AND CP.MSSPMONTHLY = 'YES'       
+   AND PD.SERIALNUMBER NOT IN (SELECT SERIALNUMBER  FROM #MSSPPRODUCTSERVICES (NOLOCK))      
+   --EXCEPT        
+   --SELECT TENANTID, PRODUCTID, SERIALNUMBER  FROM #MSSPPRODUCTSERVICES      
+       
+    --SELECT * from #UNLISTEDPRODUCTS      
+        
+   INSERT INTO #MSSPPRODUCTSERVICES ( TENANTID, SERIALNUMBER, PRODUCTID)        
+   SELECT TENANTID, SERIALNUMBER, MMPS.PRODUCTID      
+   FROM #UNLISTEDPRODUCTS U WITH (NOLOCK), MASTERMSSPPRODUCTSERVICES MMPS WITH (NOLOCK)       
+   WHERE U.PRODUCTID = MMPS.PRODUCTID          
+   GROUP BY TENANTID, SERIALNUMBER, MMPS.PRODUCTID;      
+      
+     --SELECT * from #MSSPPRODUCTSERVICES      
+      
+     INSERT  INTO #TEMPLISTTABLE            
+       ( PRODUCTID ,            
+         SERIALNUMBER ,                                 
+         PRODUCTFAMILY,          
+          PRODUCTLINE,          
+          ACTIVEPROMOTION           
+                
+       )                                 
+    SELECT CPS.PRODUCTID, CPS.SERIALNUMBER, PRODUCTFAMILY,      
+    PRODUCTLINE, ACTIVEPROMOTION from #MSSPPRODUCTSERVICES M WITH (NOLOCK),      
+    CUSTOMERPRODUCTSSUMMARY CPS WITH (NOLOCK)      
+    WHERE M.SERIALNUMBER = CPS.SERIALNUMBER      
+    AND CPS.SERIALNUMBER NOT IN (SELECT SERIALNUMBER FROM #TEMPLISTTABLE)        
+      
+    UPDATE #TEMPLISTTABLE              
+ SET MSSPMONTHLYOPTION = CASE WHEN #TEMPLISTTABLE.PRODUCTID IN (SELECT MS.PRODUCTID      
+     FROM MASTERMSSPPRODUCTSERVICES MS WITH (NOLOCK), CUSTOMERPRODUCTS CP WITH (NOLOCK) WHERE      
+      CP.SERIALNUMBER = #TEMPLISTTABLE.SERIALNUMBER AND MS.STATUS='ACTIVE' AND CP.MSSPMONTHLY = 'YES')      
+  THEN 'DISABLE' -- MSSP Monthly is enabled, hence show disable option      
+      
+  WHEN #TEMPLISTTABLE.PRODUCTID IN (SELECT MS.PRODUCTID      
+     FROM MASTERMSSPPRODUCTSERVICES MS WITH (NOLOCK), CUSTOMERPRODUCTS CP WITH (NOLOCK) WHERE      
+     CP.SERIALNUMBER = #TEMPLISTTABLE.SERIALNUMBER AND MS.STATUS='ACTIVE' AND ISNULL(CP.MSSPMONTHLY,'NO') = 'NO')      
+  THEN 'ENABLE' END -- MSSP Monthly is disabled, hence show enable option      
+      
+  IF(@ROLETYPELOGIC='YES')        
+  BEGIN         
+        
+        
+UPDATE #TEMPLISTTABLE        
+    SET ROLETYPE =        
+  CASE        
+  (SELECT TOP 1 ISSUPERADMIN FROM TENANTGROUPPERMISSIONSUMMARY WITH (NOLOCK) WHERE USERNAME=@USERNAME AND PRODUCTGROUPID=P.PRODUCTGROUPID        
+  AND PARTYID IN (SELECT PARTYID FROM PARTY(NOLOCK) WHERE CONTACTID = @CONTACTID)) WHEN 'YES' THEN 'SUPERADMIN'        
+  ELSE         
+  ISNULL((SELECT TOP 1 ACCESSTYPEPRODMGMTROLETYPE         
+  FROM TENANTGROUPPERMISSIONSUMMARY WITH (NOLOCK) WHERE USERNAME=@USERNAME AND PRODUCTGROUPID=P.PRODUCTGROUPID AND PARTYID IN (SELECT PARTYID FROM PARTY(NOLOCK) WHERE CONTACTID = @CONTACTID))         
+  ,dbo.FNGETTENANTGROUPPERMISSION(@USERNAME,P.PRODUCTGROUPID,@APPLICATIONFUNCTIONALITY,'MSSPUSER', DEFAULT))        
+  END        
+  FROM #TEMPLISTTABLE P  WITH (NOLOCK) WHERE MSSPMONTHLYOPTION='DISABLE'      
+        
+END         
+IF(@ROLETYPELOGIC='NO') OR          
+ EXISTS(SELECT T.PRODUCTGROUPID FROM #TEMPLISTTABLE T   WITH (NOLOCK)        
+   INNER JOIN  TENANTACTIVITYSTAGING CP WITH (NOLOCK)          
+   ON T.PRODUCTGROUPID=CP.PRODUCTGROUPID        
+   AND PROCESSED='NO')         
+BEGIN         
+ UPDATE #TEMPLISTTABLE          
+   SET ROLETYPE = DBO.FNGETTENANTGROUPPERMISSION(@USERNAME,T.PRODUCTGROUPID,'ACCESSTYPEPRODMGMT','MSSPUSER', DEFAULT)          
+   FROM #TEMPLISTTABLE T        
+END        
+      
+IF EXISTS (SELECT APPLICATIONPARTYROLEID FROM APPLICATIONPARTYROLE NOLOCK WHERE PARTYID=(SELECT TOP 1 PARTYID FROM VCUSTOMER(NOLOCK) WHERE USERNAME=@USERNAME) AND           
+  APPLICATIONROLEID IN(SELECT APPLICATIONROLEID FROM APPLICATIONROLE NOLOCK WHERE ROLENAME='WORKSPACEBETA' AND APPLICATIONNAME='MSW')) OR          
+  EXISTS(SELECT * FROM APPLICATIONCONFIGVALUE NOLOCK WHERE APPLICATIONCONFIGNAME='ISWORKSPACEENABLED' AND APPLICATIONCONFIGVALUE='FORCED')           
+  BEGIN          
+   UPDATE #TEMPLISTTABLE            
+   SET ISTRANSFERALLOWED =CASE WHEN PRODUCTID IN (  400  ) THEN 'NO' WHEN ACTIVEPROMOTION =1 AND @ROLLUP = 0 THEN 'NO'           
+   WHEN  PRODUCTLINE='STORAGE MODULE' OR PRODUCTLINE='SATA MODULE' OR PRODUCTLINE='M2 STORAGE MODULE' THEN 'NO' WHEN S1SVCSTATUS = 'PENDING' THEN 'NO' ELSE 'YES' END          
+          
+    UPDATE #TEMPLISTTABLE           
+  SET ISTRANSFERALLOWED = CASE WHEN UPPER(ROLETYPE) IN ('READONLY','OPERATOR') THEN 'NO' ELSE ISTRANSFERALLOWED END        
+   FROM  #TEMPLISTTABLE TMP           
+  END          
+  ELSE          
+  BEGIN          
+  UPDATE #TEMPLISTTABLE            
+   SET ISTRANSFERALLOWED =CASE WHEN OWNEROFTHEPRODUCT!=1 THEN 'NO' WHEN PRODUCTID IN ( 401 ) THEN 'NO' WHEN ACTIVEPROMOTION =1 AND @ROLLUP = 0 THEN 'NO'            
+   WHEN  PRODUCTLINE='STORAGE MODULE' OR PRODUCTLINE='SATA MODULE' OR PRODUCTLINE='M2 STORAGE MODULE' THEN 'NO' WHEN S1SVCSTATUS = 'PENDING' THEN 'NO' ELSE 'YES' END           
+  END        
+      
+ --UPDATE #TEMPLISTTABLE              
+ --SET MSSPMONTHLYOPTION = CASE WHEN ISNULL(PG.MASTERMSSPID,0)=0 THEN ''       
+ --WHEN ISNULL(PG.MASTERMSSPID,0)>0 AND PG.ISMAPPEDMSSPID=1 THEN '' ELSE MSSPMONTHLYOPTION END      
+ --FROM #TEMPLISTTABLE T,  DBO.FNNONMSSPTENANTSLIST(@USERNAME) PG       
+ --WHERE T.PRODUCTGROUPID=PG.PRODUCTGROUPID      
+      
+   DROP TABLE #MSSPTENANTS      
+   DROP TABLE #tMSSPIDS      
+   DROP TABLE #UNLISTEDPRODUCTS      
+   DROP TABLE #MSSPPRODUCTSERVICES      
+                
+ END      
+      
+ UPDATE  #TEMPLISTTABLE            
+    SET     OWNEROFTHEPRODUCT = 1            
+    WHERE   SERIALNUMBER IN ( SELECT SERIALNUMBER            
+                              FROM      CUSTOMERPRODUCTSSUMMARY WITH ( NOLOCK )            
+                              WHERE     USERNAME = @USERNAME )         
+      
+      
+IF @ORGBASEDASSETOWNSERSHIPENABLED = 'YES' AND @ISORGBASEDACCOUNT = 'YES'      
+BEGIN      
+      
+ UPDATE  #TEMPLISTTABLE            
+    SET     OWNEROFTHEPRODUCT = 1       
+ WHERE OWNEROFTHEPRODUCT = 0  AND SERIALNUMBER IN (SELECT SERIALNUMBER            
+                              FROM      CUSTOMERPRODUCTS WITH ( NOLOCK )            
+                              WHERE  USERNAME IN (SELECT USERNAME FROM vCUSTOMER WHERE ORGANIZATIONID = @ORGID))      
+                
+      
+END      
+                                          
+    UPDATE  #TEMPLISTTABLE            
+    SET     PRODUCTOWNER = @USERNAME                    
+                          
+    UPDATE  #TEMPLISTTABLE              
+    SET     PRODUCTOWNER = CP.USERNAME ,      
+ PRODUCTGROUPID =   CP.PRODUCTGROUPID ,            
+    PRODUCTGROUPNAME =  CP.PRODUCTGROUPNAME       
+    FROM    #TEMPLISTTABLE T ,              
+            CUSTOMERPRODUCTSSUMMARY CP WITH ( NOLOCK )              
+    WHERE   T.SERIALNUMBER = CP.SERIALNUMBER              
+            AND T.OWNEROFTHEPRODUCT = 0       
+                     
+                          
+    IF ( @ORDERNAME IS NULL )            
+        OR ( @ORDERNAME = '' )             
+        SELECT  @ORDERNAME = 'NAME'                               
+    IF ( @ORDERTYPE IS NULL )            
+        OR ( @ORDERTYPE = '' )             
+        SELECT  @ORDERTYPE = 0                    
+          
+                  
+    IF @APPNAME IN ( 'MSW', 'CHANNEL' )             
+    BEGIN            
+  -- Dont show Cloud tenant 2.0(NFR = 10) and CSCMA 1.9(NFR = 11) tenant serial# My products only in MSW          
+  DELETE  #TEMPLISTTABLE FROM #TEMPLISTTABLE T            
+  WHERE   T.PRODUCTID = 400            
+  AND T.SERIALNUMBER in (SELECT SERIALNUMBER FROM PRODUCTSERIALNUMBERS PSN (nolock) WHERE PSN.SERIALNUMBER = T.SERIALNUMBER AND PSN.PRODUCTID = 400 AND NFR IN (10, 11))            
+            
+          
+  --If AppName = 'MSW', then only return those srl nos where OEMCode = @OEMCODE              
+  DELETE  FROM #TEMPLISTTABLE            
+    WHERE   PRODUCTID NOT IN ( SELECT   PRODUCTID            
+             FROM     PRODUCTS WITH ( NOLOCK )            
+  WHERE    OEMCODE = @OEMCODE )              
+    END                  
+                  
+          
+                             
+                    
+    IF ISNULL(@OEMCODE, '') = 'HGMS'             
+        BEGIN            
+            UPDATE  #TEMPLISTTABLE            
+            SET     PRODUCTFAMILY = NULL            
+            
+            UPDATE  #TEMPLISTTABLE            
+            SET     PRODUCTFAMILY = 'Click here to Login'            
+            FROM    #TEMPLISTTABLE T ,            
+                    HOSTEDGMSDETAILS H ( NOLOCK )            
+            WHERE   T.SERIALNUMBER = H.SERIALNUMBER         
+AND H.STATUS = 'SUCCESS'            
+        END           
+           
+IF @ORGBASEDASSETOWNSERSHIPENABLED = 'YES' AND @ISORGBASEDACCOUNT = 'YES'      
+BEGIN      
+-- Restrict Product Operations such as Rename, Transfer and Delete when user has gained Access through Affiliation Tenant scope with Read-only Access (MSW-25825)      
+      
+ UPDATE  #TEMPLISTTABLE            
+    SET     ISRENAMEALLOWED = 'NO',      
+ ISDELETEALLOWED = 'NO',      
+ ISTRANSFERALLOWED = 'NO'      
+ WHERE OWNEROFTHEPRODUCT = 0  AND PRODUCTGROUPID IN       
+  (SELECT PRODUCTGROUPID FROM PARTYPRODUCTGROUP WITH (NOLOCK)      
+  WHERE ISNULL(COMANAGEORGTRACKERID,0) > 0 AND PERMISSIONTYPEID IN (SELECT PERMISSIONTYPEID FROM PERMISSIONTYPE WITH (NOLOCK) WHERE      
+  INTERNALDESCRIPTION = 'READONLY'))      
+                
+END      
+            
+ if @SOURCE ='RESTAPI' AND @ISLARGEUSER = 'NO'          
+  begin          
+   DECLARE @TPARTYPRODUCTGRPDETAIL TABLE  
+   (  
+   CONTACTID INT,  
+   SERIALNUMBER VARCHAR(30),  
+   PARTYGROUPID INT,  
+   PARTYGROUPNAME NVARCHAR(255)  
+   )      
+  INSERT INTO @TPARTYPRODUCTGRPDETAIL SELECT CONTACTID,SERIALNUMBER,PARTYGROUPID,PARTYGROUPNAME FROM VWPARTYPRODUCTGROUPDETAIL WITH (NOLOCK) WHERE CONTACTID=@CONTACTID     
+  UPDATE  #TEMPLISTTABLE            
+    SET     PARTYGROUPIDS = stuff((select  distinct ',' + convert(varchar,vw.PARTYGROUPID) from @TPARTYPRODUCTGRPDETAIL vw          
+   where vw.SERIALNUMBER = TMP.SERIALNUMBER for xml path('')),1,1,'') + ','           
+    FROM    #TEMPLISTTABLE TMP            
+            
+          
+    UPDATE  #TEMPLISTTABLE            
+    SET     PARTYGROUPNAMES = stuff((select distinct ',' + vw.PARTYGROUPNAME from @TPARTYPRODUCTGRPDETAIL vw        
+    where vw.SERIALNUMBER = TMP.SERIALNUMBER for xml path('')),1,1,'') + ','             
+    FROM    #TEMPLISTTABLE TMP            
+           
+ --   UPDATE  #TEMPLISTTABLE            
+ --   SET     PRODUCTGROUPIDS = stuff((select  distinct ',' + convert(varchar,vw.PRODUCTGROUPID) from VWPARTYPRODUCTGROUPDETAIL vw    (NOLOCK)          
+ --where vw.SERIALNUMBER = TMP.SERIALNUMBER and VW.CONTACTID = @CONTACTID  for xml path('')),1,1,'') + ','           
+ --   FROM    #TEMPLISTTABLE TMP            
+            
+        
+  end        
+          
+    --IF @SOURCE ='RESTAPI' AND @ISLARGEUSER = 'YES'        
+    --BEGIN        
+        UPDATE #TEMPLISTTABLE SET PRODUCTGROUPNAMES = ISNULL(CP.PRODUCTGROUPNAME,T.PRODUCTGROUPNAME)        
+  ,PRODUCTGROUPIDS= ISNULL(CP.PRODUCTGROUPID, T.PRODUCTGROUPID)        
+  FROM #TEMPLISTTABLE T WITH (NOLOCK)           
+  inner join CUSTOMERPRODUCTSSUMMARY cp with (nolock)        
+  on cp.serialnumber=t.serialnumber      
+        
+  --select * from #TEMPLISTTABLE      
+               
+ UPDATE  #TEMPLISTTABLE            
+  SET  ISLICENSEEXPIRED = 1 , LICENSEEXPIRYCNT=1            
+  WHERE   LICENSEEXPIRYCNT > 0          
+          
+  UPDATE  #TEMPLISTTABLE            
+  SET  ISSOONEXPIRING = 1 , SOONEXPIRINGCNT = 1            
+  WHERE   SOONEXPIRINGCNT > 0          
+          
+  UPDATE  #TEMPLISTTABLE            
+  SET   ACTIVELICENSECNT = 1            
+  WHERE   ACTIVELICENSECNT > 0              
+          
+            IF ( @OutformatXML = 0 )             
+                BEGIN             
+              
+              
+              --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)  
+               
+                         IF @PRODUCTLIST = 'LIMIT'             
+                         BEGIN     
+                             -- Apply pagination logic for LIMITED results
+                             DECLARE @LimitStartRow INT, @LimitEndRow INT, @LimitTotalCount INT
+                             SET @LimitStartRow = (@PAGENO - 1) * @PAGESIZE + 1
+                             SET @LimitEndRow = @PAGENO * @PAGESIZE
+
+                             -- Get total count first
+                             SELECT @LimitTotalCount = COUNT(*) 
+                             FROM CUSTOMERPRODUCTSSUMMARY C with (nolock)
+                             INNER JOIN #TEMPLISTTABLE AS PRODUCT ON C.serialnumber = PRODUCT.serialnumber
+
+                             -- Apply min/max count filters if specified
+                             IF (@MINCOUNT IS NOT NULL AND @LimitTotalCount < @MINCOUNT) OR 
+                                (@MAXCOUNT IS NOT NULL AND @LimitTotalCount > @MAXCOUNT)
+                             BEGIN
+                                 SELECT 'No records match the count criteria' AS Message, 
+                                        @LimitTotalCount AS TotalCount, 
+                                        @MINCOUNT AS MinCount, 
+                                        @MAXCOUNT AS MaxCount
+                                 RETURN
+                             END
+
+                             ;WITH LimitedPaginatedResults AS (
+                                 SELECT DISTINCT            
+                                C.PRODUCTID ,            
+                                C.SERIALNUMBER ,            
+                                C.[NAME] ,            
+                                C.CUSTOMERPRODUCTID ,            
+                                C.STATUS ,            
+                                C.REGISTRATIONCODE ,            
+                                C.FIRMWAREVERSION ,            
+                                 PRODUCT.PRODUCTLINE ,            
+                                C.PRODUCTFAMILY ,            
+                                C.ACTIVEPROMOTION ,            
+                                C.PROMOTIONID ,            
+                                C.NFR ,            
+                                PRODUCT.OWNEROFTHEPRODUCT ,            
+                                PRODUCT.PRODUCTOWNER ,            
+                                C.ISSUENAME ,            
+                                C.RESOLUTIONNAME ,            
+                                C.PRODUCTNAME ,            
+                                C.PRODUCTGROUPID ,            
+                                C.PRODUCTGROUPNAME ,            
+                                PRODUCT.PARTYGROUPNAMES,          
+                                C.RELEASESTATUS,          
+                                C.DISPLAYKEYSET ,            
+                                C.ASSOCIATIONTYPE ,            
+                                C.GROUPHEADERTEXT ,            
+                                C.ASSOCIATIONTYPEID ,            
+                                C.ISEPRS ,            
+                                C.CREATEDDATE AS REGISTRATIONDATE ,      
+                             --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,    
+                          C.LASTPINGDATE AS LASTPINGDATE,  
+                                C.REMOVEASSOCIATION ,            
+                          C.DELETEDM ,            
+                                C.REGCODE ,            
+                                C.HGMSPROVISIONINGSTATUS,          
+                              C.MCAFEEORDER,          
+                                C.DEVICESTATUS,          
+                                PRODUCT.ISDELETEALLOWED,          
+                                PRODUCT.ISTRANSFERALLOWED,          
+                                PRODUCT.ISRENAMEALLOWED,          
+                                PRODUCT.ISSECUREUPGRADE,          
+                                C.PTAB,          
+                                C.LTAB,          
+                                C.CBKUPTAB,          
+                                C.FWTAB,          
+                                C.S1SVCSTATUS,          
+                                C.SENTINELONEEXPIRYDATE,          
+                                C.PRODUCTTYPE,          
+                                PRODUCT.LICENSEEXPIRYCNT,          
+                                PRODUCT.SOONEXPIRINGCNT,          
+                                PRODUCT.ACTIVELICENSECNT,          
+                                PRODUCT.ISLICENSEEXPIRED,          
+                           PRODUCT.ISSOONEXPIRING,          
+                                PRODUCT.MINLICENSEEXPIRYDATE,          
+                                PRODUCT.SOONEXPIRYDATE,          
+                                PRODUCT.CCNODECOUNT,          
+                                PRODUCT.HESNODECOUNT,          
+                                PRODUCT.CASNODECOUNT,          
+                              PRODUCT.GMSNODECOUNT,
+                              C.EPAID ,
+                              C.SERVICELINE,
+                              C.ISBILLABLE,          
+                               -- C.ISDOWNLOADAVAILABLE,       
+                                C.UPDATESAVAILABLE 'ISDOWNLOADAVAILABLE',          
+                                C.ISZTSUPPORTED ,          
+                                C.SUPPORTEXPIRYDATE,          
+                                C.NONSUPPORTEXPIRYDATE,
+                                PRODUCT.SASELICENSECOUNT,
+                                C.ISZEROTOUCHALLOWED, 
+                                PRODUCT.ORGNAME, 
+                                PRODUCT.ISADDKEYSETAPPLICABLE, 
+                                PRODUCT.MSSPMONTHLYOPTION,
+                                C.ISNETWORKPRODUCT,      
+                                PRODUCT.EMAILADDRESS,      
+                                PRODUCT.DESCRIPTION , 
+                                PRODUCT.ISSHAREDTENANT ,
+                                PRODUCTCHOICEID,
+                                C.VULTOOLTIPTEXT, 
+                                C.VULHREFTEXT,
+                                C.VULSEVERITY, 
+                                CU.MANAGEMENTOPTION,
+                                ROW_NUMBER() OVER (ORDER BY C.CREATEDDATE DESC) AS RowNum,
+                                @LimitTotalCount AS TotalCount
+                                             FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+                                inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber  
+                             Left join CUSTOMERPRODUCTS CU WITH (NOLOCK) ON CU.SERIALNUMBER = C.serialnumber  
+                             )
+                             SELECT * FROM LimitedPaginatedResults 
+                             WHERE RowNum BETWEEN @LimitStartRow AND @LimitEndRow                                                            
+                             RETURN               
                         END             
                     ELSE             
                         BEGIN      
@@ -2657,98 +3920,3300 @@ END
        --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)  
                  
           
-                       SELECT DISTINCT              
-     t.CID,             
-     C.PRODUCTID ,              
-     C.SERIALNUMBER ,              
-     C.[NAME] ,              
-     C.CUSTOMERPRODUCTID ,              
-     C.STATUS ,              
-     C.REGISTRATIONCODE ,              
-     C.FIRMWAREVERSION ,              
-      t.PRODUCTLINE ,                
-     C.PRODUCTFAMILY ,              
-     C.ACTIVEPROMOTION ,              
-     C.PROMOTIONID ,              
-     C.NFR ,              
-    t.OWNEROFTHEPRODUCT ,              
-     t.PRODUCTOWNER ,              
-     C.ISSUENAME ,              
-     C.RESOLUTIONNAME ,              
-     C.PRODUCTNAME ,              
-     C.PRODUCTGROUPID ,          
-     C.PRODUCTGROUPNAME ,            
-     t.PARTYGROUPNAMES,            
-     C.RELEASESTATUS,            
-     C.DISPLAYKEYSET ,              
-     C.ASSOCIATIONTYPE ,              
-     C.GROUPHEADERTEXT ,              
-     C.ASSOCIATIONTYPEID ,              
-     C.ISEPRS ,              
-     C.CREATEDDATE AS REGISTRATIONDATE ,       
-     --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,  
-  C.LASTPINGDATE AS LASTPINGDATE,  
-     C.REMOVEASSOCIATION ,              
-     C.DELETEDM ,              
-     C.REGCODE ,              
-     t.NEEDEDFIRMWAREVERSION ,              
-     t.FIRMWARESTATUS ,              
-     t.FIRMWARETEXT ,              
-     C.SRLNOSTATUS ,              
-     C.RELEASENOTES ,              
-     C.CREATEDDATE AS REGISTRATIONDATE,              
-     C.HGMSPROVISIONINGSTATUS,            
-     C.MCAFEEORDER,            
-     C.DEVICESTATUS,            
-     t.ISDELETEALLOWED,            
-     t.ISTRANSFERALLOWED,            
-     t.ISRENAMEALLOWED,            
-     t.ISSECUREUPGRADE,            
-     C.SUPPORTDATE,            
-     t.PRODUCTGROUPNAMES,            
-     C.PTAB,            
-     C.LTAB,            
-     C.CBKUPTAB,            
-     C.FWTAB,            
-     C.S1SVCSTATUS,            
-     C.SENTINELONEEXPIRYDATE,            
-     C.PRODUCTTYPE,            
-     t.LICENSEEXPIRYCNT,            
-     t.SOONEXPIRINGCNT,            
-     t.ACTIVELICENSECNT,            
-     t.ISLICENSEEXPIRED,            
-     t.ISSOONEXPIRING,            
-     t.MINLICENSEEXPIRYDATE,            
-     t.SOONEXPIRYDATE,            
-     t.CCNODECOUNT,            
-     t.HESNODECOUNT,            
-    t.CASNODECOUNT,            
-     t.GMSNODECOUNT,          
-     C.EPAID ,          
-     C.SERVICELINE,          
-     C.ISBILLABLE ,            
-    --C.ISDOWNLOADAVAILABLE,       
-                                 C.UPDATESAVAILABLE 'ISDOWNLOADAVAILABLE',            
-     C.ISZTSUPPORTED,            
-     C.SUPPORTEXPIRYDATE,            
-     C.NONSUPPORTEXPIRYDATE ,            
-     t.ROLETYPE ,          
-     t.SASELICENSECOUNT,          
-     C.ISZEROTOUCHALLOWED,           
-     t.ORGNAME,      
-     t.ISADDKEYSETAPPLICABLE,      
-     t.MSSPMONTHLYOPTION,      
-     C.ISNETWORKPRODUCT       
-     , t.EMAILADDRESS,      
-     t.DESCRIPTION , t.ISSHAREDTENANT    ,PRODUCTCHOICEID,C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY,t.MANAGEMENTOPTION,t.ORGID   
-                   FROM  CUSTOMERPRODUCTSSUMMARY C with (nolock)  
-         
-        ,  #TEMPLISTTABLE   AS t   where   C.serialnumber=t.serialnumber          
-                            ORDER BY C.CREATEDDATE DESC          
+                                               -- Apply pagination logic
+                        DECLARE @StartRow INT, @EndRow INT
+                        SET @StartRow = (@PAGENO - 1) * @PAGESIZE + 1
+                        SET @EndRow = @PAGENO * @PAGESIZE
+
+                        -- Get total count first
+                        DECLARE @TotalCount INT
+                        SELECT @TotalCount = COUNT(*) 
+                        FROM CUSTOMERPRODUCTSSUMMARY C with (nolock)
+                        INNER JOIN #TEMPLISTTABLE AS t ON C.serialnumber = t.serialnumber
+
+                        -- Apply min/max count filters if specified
+                        IF (@MINCOUNT IS NOT NULL AND @TotalCount < @MINCOUNT) OR 
+                           (@MAXCOUNT IS NOT NULL AND @TotalCount > @MAXCOUNT)
+                        BEGIN
+                            -- Return empty result set if count doesn't meet criteria
+                            SELECT 'No records match the count criteria' AS Message, 
+                                   @TotalCount AS TotalCount, 
+                                   @MINCOUNT AS MinCount, 
+                                   @MAXCOUNT AS MaxCount
+                            RETURN
+                        END
+
+                        ;WITH PaginatedResults AS (
+                            SELECT DISTINCT              
+                             t.CID,             
+                             C.PRODUCTID ,              
+                             C.SERIALNUMBER ,              
+                             C.[NAME] ,              
+                             C.CUSTOMERPRODUCTID ,              
+                             C.STATUS ,              
+                             C.REGISTRATIONCODE ,              
+                             C.FIRMWAREVERSION ,              
+                              t.PRODUCTLINE ,                
+                             C.PRODUCTFAMILY ,              
+                             C.ACTIVEPROMOTION ,              
+                             C.PROMOTIONID ,              
+                             C.NFR ,              
+                            t.OWNEROFTHEPRODUCT ,              
+                             t.PRODUCTOWNER ,              
+                             C.ISSUENAME ,              
+                             C.RESOLUTIONNAME ,              
+                             C.PRODUCTNAME ,              
+                             C.PRODUCTGROUPID ,          
+                             C.PRODUCTGROUPNAME ,            
+                             t.PARTYGROUPNAMES,            
+                             C.RELEASESTATUS,            
+                             C.DISPLAYKEYSET ,              
+                             C.ASSOCIATIONTYPE ,              
+                             C.GROUPHEADERTEXT ,              
+                             C.ASSOCIATIONTYPEID ,              
+                             C.ISEPRS ,              
+                             C.CREATEDDATE AS REGISTRATIONDATE ,       
+                             --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,  
+                          C.LASTPINGDATE AS LASTPINGDATE,  
+                             C.REMOVEASSOCIATION ,              
+                             C.DELETEDM ,              
+                             C.REGCODE ,              
+                             t.NEEDEDFIRMWAREVERSION ,              
+                             t.FIRMWARESTATUS ,              
+                             t.FIRMWARETEXT ,              
+                             C.SRLNOSTATUS ,              
+                             C.RELEASENOTES ,              
+                             C.HGMSPROVISIONINGSTATUS,            
+                             C.MCAFEEORDER,            
+                             C.DEVICESTATUS,            
+                             t.ISDELETEALLOWED,            
+                             t.ISTRANSFERALLOWED,            
+                             t.ISRENAMEALLOWED,            
+                             t.ISSECUREUPGRADE,            
+                             C.SUPPORTDATE,            
+                             t.PRODUCTGROUPNAMES,            
+                             C.PTAB,            
+                             C.LTAB,            
+                             C.CBKUPTAB,            
+                             C.FWTAB,            
+                             C.S1SVCSTATUS,            
+                             C.SENTINELONEEXPIRYDATE,            
+                             C.PRODUCTTYPE,            
+                             t.LICENSEEXPIRYCNT,            
+                             t.SOONEXPIRINGCNT,            
+                             t.ACTIVELICENSECNT,            
+                             t.ISLICENSEEXPIRED,            
+                             t.ISSOONEXPIRING,            
+                             t.MINLICENSEEXPIRYDATE,            
+                             t.SOONEXPIRYDATE,            
+                             t.CCNODECOUNT,            
+                             t.HESNODECOUNT,            
+                            t.CASNODECOUNT,            
+                             t.GMSNODECOUNT,          
+                             C.EPAID ,          
+                             C.SERVICELINE,          
+                             C.ISBILLABLE ,            
+                            --C.ISDOWNLOADAVAILABLE,       
+                                                     C.UPDATESAVAILABLE 'ISDOWNLOADAVAILABLE',            
+                             C.ISZTSUPPORTED,            
+                             C.SUPPORTEXPIRYDATE,            
+                             C.NONSUPPORTEXPIRYDATE ,            
+                             t.ROLETYPE ,          
+                             t.SASELICENSECOUNT,          
+                             C.ISZEROTOUCHALLOWED,           
+                             t.ORGNAME,      
+                             t.ISADDKEYSETAPPLICABLE,      
+                             t.MSSPMONTHLYOPTION,      
+                             C.ISNETWORKPRODUCT,       
+                             t.EMAILADDRESS,      
+                             t.DESCRIPTION , 
+                             t.ISSHAREDTENANT,
+                             PRODUCTCHOICEID,
+                             C.VULTOOLTIPTEXT, 
+                             C.VULHREFTEXT,
+                             C.VULSEVERITY,
+                             t.MANAGEMENTOPTION,
+                             t.ORGID,
+                             ROW_NUMBER() OVER (ORDER BY C.CREATEDDATE DESC) AS RowNum,
+                             @TotalCount AS TotalCount
+                           FROM  CUSTOMERPRODUCTSSUMMARY C with (nolock)  
+                           INNER JOIN #TEMPLISTTABLE AS t ON C.serialnumber = t.serialnumber          
+                        )
+                        SELECT * FROM PaginatedResults 
+                        WHERE RowNum BETWEEN @StartRow AND @EndRow          
                
    INSERT INTO @PRODGROUPTABLE (PRODUCTGROUPID, PRODUCTGROUPNAME)      
        SELECT DISTINCT PRODUCTGROUPID, PRODUCTGROUPNAME FROM #TEMPLISTTABLE   AS t WHERE PRODUCTGROUPID IS NOT NULL        
+UPDATE @PRODGROUPTABLE      
+   SET TOTALPRODUCTSCNT = (SELECT COUNT(t.PRODUCTGROUPID)      
+                   FROM #TEMPLISTTABLE t      
+                  WHERE t.PRODUCTGROUPID = P.PRODUCTGROUPID)      
+  FROM @PRODGROUPTABLE P       
+      
+  UPDATE @PRODGROUPTABLE      
+   SET EXPIREDPRODUCTSCNT = (SELECT COUNT(t.PRODUCTGROUPID)      
+                   FROM #TEMPLISTTABLE t      
+                  WHERE t.PRODUCTGROUPID = P.PRODUCTGROUPID      
+      AND ISLICENSEEXPIRED = 1 AND MINLICENSEEXPIRYDATE IS NOT NULL)      
+  FROM @PRODGROUPTABLE P       
+      
+  UPDATE @PRODGROUPTABLE      
+   SET SOONEXPIRINGPRODDUCTSCNT = (SELECT COUNT(t.PRODUCTGROUPID)      
+                   FROM #TEMPLISTTABLE t      
+                  WHERE t.PRODUCTGROUPID = P.PRODUCTGROUPID      
+      AND  ISSOONEXPIRING = 1 AND SOONEXPIRYDATE IS NOT NULL)      
+  FROM @PRODGROUPTABLE P       
+      
+  UPDATE @PRODGROUPTABLE      
+   SET ACTIVEPRODUCTSCNT = ISNULL((SELECT SUM(ACTIVELICENSECNT)       
+                   FROM #TEMPLISTTABLE t      
+                  WHERE t.PRODUCTGROUPID = P.PRODUCTGROUPID),0)      
+  FROM @PRODGROUPTABLE P       
+      
+   UPDATE @PRODGROUPTABLE      
+    SET FIREWALLCNT =  (SELECT COUNT(t.PRODUCTGROUPID)      
+                   FROM #TEMPLISTTABLE t,  CUSTOMERPRODUCTSSUMMARY C with (nolock)         
+                  WHERE t.PRODUCTGROUPID = P.PRODUCTGROUPID      
+      AND C.serialnumber=t.serialnumber              
+      AND  C.PRODUCTTYPE = 'Firewall')      
+   FROM @PRODGROUPTABLE P      
+      
+  UPDATE @PRODGROUPTABLE      
+    SET ACCESSPOINTCNT =  (SELECT COUNT(t.PRODUCTGROUPID)      
+                  FROM #TEMPLISTTABLE t,  CUSTOMERPRODUCTSSUMMARY C with (nolock)         
+                  WHERE t.PRODUCTGROUPID = P.PRODUCTGROUPID      
+      AND C.serialnumber=t.serialnumber              
+      AND  C.PRODUCTTYPE = 'Access Points')      
+   FROM @PRODGROUPTABLE P       
+      
+       
+  IF ISNULL(@APPLICATIONNAME,'') <> 'MSWANDROID' AND @ISPRODUCTGROUPTABLENEEDED = 'YES'      
+ BEGIN      
+  SELECT * FROM @PRODGROUPTABLE      
+ END      
+                  RETURN                    
+                        END                 
+              END                
+            ELSE             
+                BEGIN      
+ --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)      
+                   IF @PRODUCTLIST = 'LIMIT'             
+                        BEGIN              
+                            SELECT DISTINCT TOP 10            
+       C.PRODUCTID ,            
+       C.SERIALNUMBER ,            
+       C.[NAME] ,            
+       C.CUSTOMERPRODUCTID ,            
+       C.STATUS ,            
+       C.REGISTRATIONCODE ,            
+       C.FIRMWAREVERSION ,            
+        PRODUCT.PRODUCTLINE ,            
+       C.PRODUCTFAMILY ,            
+       C.ACTIVEPROMOTION ,            
+       C.PROMOTIONID ,            
+       C.NFR ,            
+       PRODUCT.OWNEROFTHEPRODUCT ,            
+       PRODUCT.PRODUCTOWNER ,            
+       C.ISSUENAME ,            
+       C.RESOLUTIONNAME ,            
+       C.PRODUCTNAME ,            
+       C.PRODUCTGROUPID ,            
+       C.PRODUCTGROUPNAME ,            
+       C.DISPLAYKEYSET ,            
+       C.ASSOCIATIONTYPE ,            
+       C.GROUPHEADERTEXT ,            
+       C.ISEPRS ,            
+       C.CREATEDDATE AS REGISTRATIONDATE,       
+    --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,   
+ C.LASTPINGDATE AS LASTPINGDATE,  
+       C.HGMSPROVISIONINGSTATUS,          
+       C.DEVICESTATUS,          
+       PRODUCT.ISDELETEALLOWED,          
+       PRODUCT.ISTRANSFERALLOWED,          
+       PRODUCT.ISRENAMEALLOWED,          
+       PRODUCT.ISSECUREUPGRADE,          
+       C.LTAB,          
+     C.CBKUPTAB,          
+       C.FWTAB,          
+       C.SENTINELONEEXPIRYDATE  ,         
+       C.PRODUCTTYPE,          
+       PRODUCT.LICENSEEXPIRYCNT,          
+       PRODUCT.SOONEXPIRINGCNT,          
+       PRODUCT.ACTIVELICENSECNT,     
+       PRODUCT.MINLICENSEEXPIRYDATE,          
+       PRODUCT.SOONEXPIRYDATE,C.EPAID ,C.SERVICELINE,C.ISBILLABLE ,          
+       C.SUPPORTEXPIRYDATE,          
+       C.NONSUPPORTEXPIRYDATE ,          
+       PRODUCT.ROLETYPE  ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED, PRODUCT.ORGNAME, PRODUCT.ISADDKEYSETAPPLICABLE,      
+    PRODUCT.MSSPMONTHLYOPTION,      
+    C.ISNETWORKPRODUCT , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT ,PRODUCTCHOICEID ,C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY,PRODUCT.MANAGEMENTOPTION,PRODUCT.ORGID       
+      FROM  CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+        ,  #TEMPLISTTABLE   AS PRODUCT   where   C.serialnumber=PRODUCT.serialnumber          
+                            ORDER BY C.CREATEDDATE DESC            
+                            FOR     XML AUTO ,            
+           ELEMENTS                                     
+    RETURN               
+                        END            
+ ELSE             
+                        BEGIN       
+ --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)        
+                            SELECT DISTINCT            
+     C.PRODUCTID ,            
+        C.SERIALNUMBER ,            
+        C.[NAME] ,            
+        C.CUSTOMERPRODUCTID ,            
+        C.STATUS ,            
+        C.REGISTRATIONCODE ,            
+        C.FIRMWAREVERSION ,            
+         PRODUCT.PRODUCTLINE ,            
+        C.PRODUCTFAMILY ,            
+        C.ACTIVEPROMOTION ,            
+        C.PROMOTIONID ,            
+        C.NFR ,            
+        PRODUCT.OWNEROFTHEPRODUCT ,            
+        PRODUCT.PRODUCTOWNER ,            
+        C.ISSUENAME ,            
+        C.RESOLUTIONNAME ,            
+        C.PRODUCTNAME ,            
+        C.PRODUCTGROUPID ,            
+        C.PRODUCTGROUPNAME ,            
+        C.DISPLAYKEYSET ,            
+        C.ASSOCIATIONTYPE ,            
+        C.GROUPHEADERTEXT ,            
+        C.ISEPRS ,            
+        C.CREATEDDATE AS REGISTRATIONDATE,      
+  --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,         
+  C.LASTPINGDATE AS LASTPINGDATE,  
+        C.HGMSPROVISIONINGSTATUS,          
+        C.DEVICESTATUS,          
+        PRODUCT.ISDELETEALLOWED,          
+        PRODUCT.ISTRANSFERALLOWED,          
+        PRODUCT.ISRENAMEALLOWED,          
+        PRODUCT.ISSECUREUPGRADE,          
+        C.SUPPORTDATE,          
+        c.SENTINELONEEXPIRYDATE,          
+        c.PRODUCTTYPE,          
+        c.EPAID ,          
+        c.SERVICELINE,          
+        c.ISBILLABLE,          
+        PRODUCT.ROLETYPE ,          
+        c.SASELICENSECOUNT,          
+        c.ISZEROTOUCHALLOWED,          
+        PRODUCT.ORGNAME,       
+   PRODUCT.ISADDKEYSETAPPLICABLE,          
+   PRODUCT.MSSPMONTHLYOPTION,      
+   C.ISNETWORKPRODUCT  , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT ,PRODUCTCHOICEID,  
+  C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY  
+                    FROM  CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+        ,  #TEMPLISTTABLE   AS PRODUCT   where   C.serialnumber=PRODUCT.serialnumber             
+              ORDER BY C.CREATEDDATE DESC            
+                  FOR     XML AUTO ,            
+  ELEMENTS                                     
+                    RETURN                  
+                END                                
+        END                
+                                  
+    IF @ORDERNAME = 'NAME'            
+        AND @ORDERTYPE = '1'             
+        BEGIN       
+      
+            IF ( @OutformatXML = 0 )             
+             BEGIN              
+                    IF ( @CallFrom = 'MYGROUPS' )             
+                        BEGIN            
+                                                  
+                            SELECT DISTINCT            
+       C.PRODUCTID ,            
+       C.SERIALNUMBER ,            
+       C.PRIMARYSERIALNUMBER ,            
+       C.ASSOCIATIONNAME ,            
+       C.[NAME] ,            
+       C.CUSTOMERPRODUCTID ,            
+       C.STATUS ,            
+       REPLACE(ISNULL(C.REGISTRATIONCODE, ''), ' ',            
+       '-') 'REGISTRATIONCODE' ,            
+       C.FIRMWAREVERSION ,            
+        PRODUCT.PRODUCTLINE ,            
+       C.PRODUCTFAMILY ,            
+       C.ACTIVEPROMOTION ,            
+       C. PROMOTIONID ,            
+       C.NFR ,            
+       PRODUCT.OWNEROFTHEPRODUCT ,            
+       PRODUCT. PRODUCTOWNER ,            
+       C.ISSUENAME ,            
+       C.RESOLUTIONNAME ,            
+       C.PRODUCTNAME ,            
+       PGD.PRODUCTGROUPID ,            
+       PG.PRODUCTGROUPNAME ,            
+       C.DISPLAYKEYSET ,            
+       C. ASSOCIATIONTYPE ,          
+       C.GROUPHEADERTEXT ,            
+  C.ASSOCIATIONTYPEID ,            
+       CONVERT(DATETIME,C. REGISTRATIONCODE) 'SUPPORTDATE' ,            
+       C.ISEPRS ,            
+       C.REMOVEASSOCIATION ,            
+       C.DELETEDM ,            
+       C.CREATEDDATE AS REGISTRATIONDATE,      
+    --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,     
+ C.LASTPINGDATE AS LASTPINGDATE,  
+       C.HGMSPROVISIONINGSTATUS,          
+       C.MCAFEEORDER,          
+       C.RELEASESTATUS,          
+       PRODUCT.PARTYGROUPIDS,          
+       C.PARTYGROUPNAME 'PARTYGROUPNAME',          
+       PRODUCT.PARTYGROUPNAMES,          
+       C.DEVICESTATUS,          
+       PRODUCT.PRODUCTGROUPNAMES,          
+       PRODUCT.PRODUCTGROUPIDS,          
+       C.FWTAB ,          
+       C.PTAB ,          
+       C.LTAB ,          
+       C.CBKUPTAB,          
+       C.ASSOCTYPEINTNAME,          
+       PRODUCT. ISDELETEALLOWED,          
+       PRODUCT.ISTRANSFERALLOWED,          
+       PRODUCT.ISRENAMEALLOWED,          
+       PRODUCT.ISSECUREUPGRADE,          
+       C.S1SVCSTATUS,          
+       C.SENTINELONEEXPIRYDATE,C.PRODUCTTYPE,C.EPAID ,C.SERVICELINE ,C.ISBILLABLE,PRODUCT.ROLETYPE ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED,       
+    PRODUCT.ORGNAME  , PRODUCT.ISADDKEYSETAPPLICABLE, PRODUCT.MSSPMONTHLYOPTION, C.ISNETWORKPRODUCT    , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT,PRODUCTCHOICEID,C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY        
+                            FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+       inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber           
+                                    LEFT OUTER JOIN PRODUCTGROUPDETAIL PGD            
+                                    WITH ( NOLOCK ) ON PGD.SERIALNUMBER = PRODUCT.SERIALNUMBER            
+                                    LEFT OUTER JOIN PRODUCTGROUP PG WITH ( NOLOCK ) ON PG.PRODUCTGROUPID = PGD.PRODUCTGROUPID            
+   ORDER BY [NAME] ASC ,            
+                              C.PRIMARYSERIALNUMBER DESC             
+                                   
+            SELECT * FROM @GROUPTABLE                                
+                 RETURN                 
+          END                
+                    ELSE             
+                        BEGIN                
+      
+           --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)  
+      
+      
+                            SELECT DISTINCT            
+       C.PRODUCTID ,            
+       C.SERIALNUMBER ,            
+       C.PRIMARYSERIALNUMBER ,            
+       C.ASSOCIATIONNAME ,            
+       C.[NAME] ,            
+       C.CUSTOMERPRODUCTID ,            
+       C.STATUS ,            
+       REPLACE(ISNULL(C.REGISTRATIONCODE, ''), ' ',            
+        '-') 'REGISTRATIONCODE' ,            
+       C.FIRMWAREVERSION ,            
+        PRODUCT.PRODUCTLINE ,            
+       C.PRODUCTFAMILY ,            
+       C.ACTIVEPROMOTION ,            
+       C.PROMOTIONID ,            
+       C.NFR ,            
+       PRODUCT.OWNEROFTHEPRODUCT ,            
+       PRODUCT.PRODUCTOWNER ,            
+       C.ISSUENAME ,            
+       C.RESOLUTIONNAME ,            
+       C.PRODUCTNAME ,            
+       C.PRODUCTGROUPID ,            
+       C.PRODUCTGROUPNAME ,            
+       C.DISPLAYKEYSET ,            
+       C.ASSOCIATIONTYPE ,            
+       C.GROUPHEADERTEXT ,            
+       C.ASSOCIATIONTYPEID ,            
+       CONVERT(DATETIME, C.REGISTRATIONCODE) 'SUPPORTDATE' ,            
+       C.ISEPRS ,            
+       C.REMOVEASSOCIATION,            
+       C.DELETEDM ,            
+       C.CREATEDDATE AS REGISTRATIONDATE,       
+    --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,   
+   C.LASTPINGDATE AS LASTPINGDATE,  
+       C.HGMSPROVISIONINGSTATUS,          
+       C.MCAFEEORDER,          
+       C.RELEASESTATUS,          
+      PRODUCT.PARTYGROUPIDS,          
+       C.PARTYGROUPNAME 'PARTYGROUPNAME',          
+ PRODUCT.PARTYGROUPNAMES,          
+       C.DEVICESTATUS,          
+       PRODUCT.PRODUCTGROUPNAMES,          
+       PRODUCT.PRODUCTGROUPIDS,          
+       C.FWTAB ,          
+       C.PTAB ,          
+       C.LTAB ,          
+       C.CBKUPTAB,          
+       C.ASSOCTYPEINTNAME,          
+       PRODUCT.ISDELETEALLOWED,          
+       PRODUCT.ISTRANSFERALLOWED,          
+       PRODUCT.ISRENAMEALLOWED,          
+       PRODUCT.ISSECUREUPGRADE ,          
+       C.S1SVCSTATUS,          
+       C.SENTINELONEEXPIRYDATE ,C.PRODUCTTYPE ,C.EPAID ,C.SERVICELINE ,C.ISBILLABLE,PRODUCT.ROLETYPE ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED,       
+    PRODUCT.ORGNAME , PRODUCT.ISADDKEYSETAPPLICABLE , PRODUCT.MSSPMONTHLYOPTION,C.ISNETWORKPRODUCT  , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION  , PRODUCT.ISSHAREDTENANT , PRODUCT.CONNECTORNAME   ,PRODUCTCHOICEID,C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY      
+                           FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+       inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber           
+                            ORDER BY C.[NAME] ASC ,            
+                                    C.PRIMARYSERIALNUMBER DESC          
+                         
+        SELECT * FROM @GROUPTABLE               
+        RETURN            
+             END             
+                END               
+            ELSE             
+                BEGIN         
+         --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)  
+                    SELECT DISTINCT            
+      C.PRODUCTID ,            
+      C.SERIALNUMBER ,            
+      C.[NAME] ,            
+      C.CUSTOMERPRODUCTID ,            
+      C.STATUS ,            
+      C.REGISTRATIONCODE ,            
+      C.FIRMWAREVERSION ,            
+       PRODUCT.PRODUCTLINE ,            
+      C.PRODUCTFAMILY ,            
+      C.ACTIVEPROMOTION ,            
+      C.PROMOTIONID ,            
+      C.NFR ,            
+      PRODUCT.OWNEROFTHEPRODUCT ,            
+      PRODUCT.PRODUCTOWNER ,            
+      C.ISSUENAME ,            
+      C.RESOLUTIONNAME ,            
+      C.PRODUCTNAME ,            
+      C.PRODUCTGROUPID ,           
+      C.PRODUCTGROUPNAME ,            
+      C.DISPLAYKEYSET ,            
+      C.ASSOCIATIONTYPE ,            
+      C.GROUPHEADERTEXT ,            
+      C.ISEPRS ,            
+      C.CREATEDDATE AS REGISTRATIONDATE,      
+  -- CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,   
+  C.LASTPINGDATE AS LASTPINGDATE,  
+      C.HGMSPROVISIONINGSTATUS,                 
+      PRODUCT.ISDELETEALLOWED,     
+      PRODUCT.ISTRANSFERALLOWED,          
+      PRODUCT.ISRENAMEALLOWED,          
+      PRODUCT.ISSECUREUPGRADE,          
+      C.SENTINELONEEXPIRYDATE  ,C.PRODUCTTYPE,C.EPAID ,C.SERVICELINE ,C.ISBILLABLE,PRODUCT.ROLETYPE ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED,       
+   PRODUCT.ORGNAME    , PRODUCT.ISADDKEYSETAPPLICABLE, PRODUCT.MSSPMONTHLYOPTION, C.ISNETWORKPRODUCT, PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT  , PRODUCT.CONNECTORNAME  ,PRODUCTCHOICEID,C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY      
+                  FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+       inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber           
+                    ORDER BY C.[NAME] ASC            
+                    FOR     XML AUTO ,            
+                                ELEMENTS                                     
+                    RETURN                
+                END                    
+        END                
+                                  
+   IF @ORDERNAME = 'PRODUCTLINE'            
+        AND @ORDERTYPE = '0'             
+        BEGIN   
+ --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)    
+            IF ( @OutformatXML = 0 )             
+                BEGIN                                     
+                    SELECT DISTINCT            
+      C.PRODUCTID ,            
+      C.SERIALNUMBER ,            
+      C.PRIMARYSERIALNUMBER ,            
+      C.ASSOCIATIONNAME ,            
+      C.[NAME] ,            
+      C.CUSTOMERPRODUCTID ,            
+      C.STATUS ,            
+      C.REGISTRATIONCODE ,            
+      C.FIRMWAREVERSION ,            
+       PRODUCT.PRODUCTLINE ,            
+      C.PRODUCTFAMILY ,            
+      C.ACTIVEPROMOTION ,            
+      C.PROMOTIONID ,            
+      C.NFR ,            
+      PRODUCT.OWNEROFTHEPRODUCT ,            
+      PRODUCT.PRODUCTOWNER ,            
+      C.ISSUENAME ,            
+      C.RESOLUTIONNAME ,            
+      C.PRODUCTNAME ,            
+      C.PRODUCTGROUPID ,            
+      C.PRODUCTGROUPNAME ,            
+      C.DISPLAYKEYSET ,            
+      C.ASSOCIATIONTYPE ,            
+      C.GROUPHEADERTEXT ,            
+      C.ASSOCIATIONTYPEID ,            
+      C.ISEPRS ,            
+      C.REMOVEASSOCIATION ,            
+      C.DELETEDM ,            
+      C.REGCODE ,            
+      C.CREATEDDATE AS REGISTRATIONDATE,      
+  -- CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,     
+     C.LASTPINGDATE AS LASTPINGDATE,  
+      C.HGMSPROVISIONINGSTATUS,          
+      C.MCAFEEORDER,          
+      PRODUCT.ISDELETEALLOWED,          
+      PRODUCT.ISTRANSFERALLOWED,          
+      PRODUCT.ISRENAMEALLOWED,          
+      PRODUCT.ISSECUREUPGRADE,          
+      C.S1SVCSTATUS,          
+      C.SENTINELONEEXPIRYDATE,          
+      C.PRODUCTTYPE,          
+      C.EPAID ,          
+      C.SERVICELINE ,C.ISBILLABLE,          
+      PRODUCT.ROLETYPE,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED, PRODUCT.ORGNAME, PRODUCT.ISADDKEYSETAPPLICABLE, PRODUCT.MSSPMONTHLYOPTION , C.ISNETWORKPRODUCT   , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION  , PRODUCT.ISSHAREDTENANT      ,PRODUCTCHOICEID, C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY     
+                     FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+       inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber            
+                    ORDER BY  PRODUCT.PRODUCTLINE DESC                                                            
+                    RETURN                  
+              END                
+      ELSE             
+                BEGIN    
+ --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)      
+                    SELECT DISTINCT            
+     C.PRODUCTID ,            
+     C.SERIALNUMBER ,            
+     C.[NAME] ,            
+     C.CUSTOMERPRODUCTID ,            
+     C.STATUS ,            
+     C.REGISTRATIONCODE ,            
+     C.FIRMWAREVERSION ,            
+      PRODUCT.PRODUCTLINE ,            
+     C.PRODUCTFAMILY ,            
+     C.ACTIVEPROMOTION ,            
+     C.PROMOTIONID ,        
+     C.NFR ,            
+     PRODUCT.OWNEROFTHEPRODUCT ,            
+     PRODUCT.PRODUCTOWNER ,            
+     C.ISSUENAME ,         
+     C.RESOLUTIONNAME ,            
+     C.PRODUCTNAME ,            
+     C.PRODUCTGROUPID ,            
+     C.PRODUCTGROUPNAME ,            
+     C.DISPLAYKEYSET ,            
+     C.ASSOCIATIONTYPE ,            
+     C.GROUPHEADERTEXT ,            
+     C.ISEPRS ,            
+     C.REGCODE ,            
+     C.CREATEDDATE AS REGISTRATIONDATE,       
+  --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,    
+  C.LASTPINGDATE AS LASTPINGDATE,  
+     C.HGMSPROVISIONINGSTATUS,          
+     PRODUCT.ISDELETEALLOWED,          
+     PRODUCT.ISTRANSFERALLOWED,          
+     PRODUCT.ISRENAMEALLOWED,          
+     PRODUCT.ISSECUREUPGRADE,          
+     C.SENTINELONEEXPIRYDATE,C.PRODUCTTYPE,C.EPAID ,C.SERVICELINE ,C.ISBILLABLE,PRODUCT.ROLETYPE ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED,       
+  PRODUCT.ORGNAME, PRODUCT.ISADDKEYSETAPPLICABLE, PRODUCT.MSSPMONTHLYOPTION, C.ISNETWORKPRODUCT         
+  , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT ,PRODUCTCHOICEID , C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY   
+                      FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+       inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber           
+                    ORDER BY  PRODUCT.PRODUCTLINE DESC            
+                    FOR     XML AUTO ,            
+                                ELEMENTS               
+   RETURN                
+                END                                  
+        END                                  
+    IF @ORDERNAME = 'PRODUCTLINE'            
+        AND @ORDERTYPE = '1'             
+        BEGIN                
+            IF ( @OutformatXML = 0 )             
+                BEGIN                                      
+                    SELECT DISTINCT            
+    C. PRODUCTID ,            
+    C.SERIALNUMBER ,            
+    C.PRIMARYSERIALNUMBER ,            
+    C.ASSOCIATIONNAME ,            
+    C.[NAME] ,            
+    C.CUSTOMERPRODUCTID ,            
+    C.STATUS ,            
+    C.REGISTRATIONCODE ,            
+    C.FIRMWAREVERSION ,            
+     PRODUCT.PRODUCTLINE ,            
+    C.PRODUCTFAMILY ,            
+    C.ACTIVEPROMOTION ,            
+    C.PROMOTIONID ,            
+    C.NFR ,            
+    PRODUCT.OWNEROFTHEPRODUCT ,            
+    PRODUCT.PRODUCTOWNER ,            
+    C.ISSUENAME ,            
+    C.RESOLUTIONNAME ,            
+    C.PRODUCTNAME ,            
+    C.PRODUCTGROUPID ,            
+    C.PRODUCTGROUPNAME ,            
+    C.DISPLAYKEYSET ,            
+    C.ASSOCIATIONTYPE ,            
+    C.GROUPHEADERTEXT ,            
+    C.ASSOCIATIONTYPEID ,            
+    C.ISEPRS ,            
+    C.REMOVEASSOCIATION ,            
+    C.DELETEDM ,            
+    C.CREATEDDATE AS REGISTRATIONDATE,      
+ --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,  
+   C.LASTPINGDATE AS LASTPINGDATE,  
+    C.HGMSPROVISIONINGSTATUS,          
+    C.MCAFEEORDER,          
+    PRODUCT.ISDELETEALLOWED,          
+    PRODUCT.ISTRANSFERALLOWED,          
+    PRODUCT.ISRENAMEALLOWED,          
+    PRODUCT.ISSECUREUPGRADE,          
+    C.S1SVCSTATUS,          
+    C.SENTINELONEEXPIRYDATE,C.PRODUCTTYPE,C.EPAID ,C.SERVICELINE ,C.ISBILLABLE,PRODUCT.ROLETYPE ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED,       
+ PRODUCT.ORGNAME, PRODUCT.ISADDKEYSETAPPLICABLE, PRODUCT.MSSPMONTHLYOPTION, C.ISNETWORKPRODUCT        
+ , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT  ,PRODUCTCHOICEID, C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY      
+                      FROM CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+       inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber           
+                    ORDER BY  PRODUCT.PRODUCTLINE ASC                                   
+                    RETURN                  
+                END               
+            ELSE             
+                BEGIN       
+ --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)      
+                    SELECT DISTINCT            
+      C.PRODUCTID ,            
+      C.SERIALNUMBER ,            
+      C.[NAME] ,            
+      C.CUSTOMERPRODUCTID ,            
+C.STATUS ,            
+      C.REGISTRATIONCODE ,            
+      C.FIRMWAREVERSION ,            
+       PRODUCT.PRODUCTLINE ,            
+      C.PRODUCTFAMILY ,            
+      C.ACTIVEPROMOTION ,            
+      C.PROMOTIONID ,            
+    C.NFR ,            
+      PRODUCT. OWNEROFTHEPRODUCT ,            
+      PRODUCT. PRODUCTOWNER ,            
+      C.ISSUENAME ,            
+      C.RESOLUTIONNAME ,            
+      C.PRODUCTNAME ,            
+      C.PRODUCTGROUPID ,            
+      C.PRODUCTGROUPNAME ,            
+      C.DISPLAYKEYSET ,            
+      C.ASSOCIATIONTYPE ,            
+      C.GROUPHEADERTEXT ,            
+      C.ISEPRS ,            
+      C.CREATEDDATE AS REGISTRATIONDATE,      
+   --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,       
+     C.LASTPINGDATE AS LASTPINGDATE,  
+      C.HGMSPROVISIONINGSTATUS,          
+      C.SENTINELONEEXPIRYDATE,C.PRODUCTTYPE,C.EPAID ,C.SERVICELINE ,C.ISBILLABLE,PRODUCT.ROLETYPE ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED,       
+   PRODUCT.ORGNAME, PRODUCT.ISADDKEYSETAPPLICABLE, PRODUCT.MSSPMONTHLYOPTION ,C.ISNETWORKPRODUCT      
+   , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT      ,PRODUCTCHOICEID, C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY   
+                     FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+       inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber           
+          ORDER BY  PRODUCT.PRODUCTLINE ASC            
+     FOR     XML AUTO ,            
+                         ELEMENTS                        
+     RETURN                
+                END            
+        END                
+            
+    IF @ORDERNAME = 'REGISTEREDDATE'            
+        AND @ORDERTYPE = '0'             
+        BEGIN          
+          
+   IF ISNULL(@ISMSSPUSER, '') <> ''  AND EXISTS (SELECT ORGANIZATIONID FROM ORGANIZATION WITH (NOLOCK)      
+  WHERE ORGANIZATIONID = @ORGID AND MASTERMSSP = 1)      
+ BEGIN -- Master MSSP user, show all products from mssp orgs which are marked as MSSPMONHTLY = YES      
+      
+  CREATE TABLE #tMSSPIDS         
+  (        
+  MSSPID INT,        
+  MSSPNAME NVARCHAR(50),        
+  MASTERMSSP BIT DEFAULT(0)        
+  )          
         
+  CREATE TABLE #MSSPTENANTS        
+  (ID INT IDENTITY        
+  ,TENANTNAME VARCHAR(255)        
+  ,TENANTID INT        
+  ,MSSPNAME VARCHAR(50)        
+  ,MSSPID INT        
+  )        
+          
+  CREATE TABLE #MSSPPRODUCTSERVICES        
+  (          
+  ID BIGINT IDENTITY(1,1)          
+  ,TENANTID INT          
+  ,SERIALNUMBER VARCHAR(50)       
+  ,PRODUCTID INT           
+  )        
+        
+  CREATE TABLE #UNLISTEDPRODUCTS        
+  (TENANTID INT        
+  ,PRODUCTID INT        
+  ,SERIALNUMBER VARCHAR(50)        
+  )        
+      
+   INSERT INTO #tMSSPIDS        
+   SELECT MM.MASTERMSSPID,MM.MSSPNAME, MM.MSSPORGANIZATIONID FROM MASTERMSSP MM WITH (NOLOCK)        
+      WHERE  MM.MASTERORGANIZATIONID = @ORGID AND ISNULL(MM.MSSPORGANIZATIONID,0) <> 0;       
+      
+    INSERT INTO #MSSPTENANTS(TENANTID, TENANTNAME, MSSPID, MSSPNAME)            
+   SELECT P.PRODUCTGROUPID, P.PRODUCTGROUPNAME, M.MSSPID, M.MSSPNAME             
+   FROM PRODUCTGROUP P WITH (NOLOCK), #tMSSPIDS M WITH ( NOLOCK ), DBO.FNMSSPTENANTSLIST (@USERNAME)MP      
+   WHERE P.MASTERMSSPID = M.MSSPID AND MP.PRODUCTGROUPID = P.PRODUCTGROUPID          
+       
+   INSERT INTO #MSSPPRODUCTSERVICES ( TENANTID, SERIALNUMBER, PRODUCTID)        
+   SELECT PD.PRODUCTGROUPID,  PD.SERIALNUMBER, M.PRODUCTID       
+   FROM #MSSPTENANTS MT WITH (NOLOCK), PRODUCTGROUPDETAIL PD WITH (NOLOCK),       
+   MSSPPRODUCTSERVICESSUMMARY M WITH (NOLOCK),       
+   CUSTOMERPRODUCTS CP WITH (NOLOCK) WHERE MT.TENANTID = PD.PRODUCTGROUPID AND      
+   PD.SERIALNUMBER = M.SERIALNUMBER AND PD.SERIALNUMBER = CP.SERIALNUMBER AND       
+   CP.MSSPMONTHLY = 'YES' AND M.STATUS = 'ACTIVE'       
+   GROUP BY PD.PRODUCTGROUPID, PD.SERIALNUMBER, M.PRODUCTID;      
+       
+         
+   INSERT INTO #UNLISTEDPRODUCTS         
+   SELECT PD.PRODUCTGROUPID, CP.PRODUCTID, PD.SERIALNUMBER         
+   FROM #MSSPTENANTS MT, PRODUCTGROUPDETAIL PD WITH (NOLOCK), CUSTOMERPRODUCTS CP WITH (NOLOCK) WHERE       
+   MT.TENANTID = PD.PRODUCTGROUPID AND PD.SERIALNUMBER = CP.SERIALNUMBER AND CP.MSSPMONTHLY = 'YES'       
+   AND PD.SERIALNUMBER NOT IN (SELECT SERIALNUMBER  FROM #MSSPPRODUCTSERVICES (NOLOCK))      
+   --EXCEPT        
+   --SELECT TENANTID, PRODUCTID, SERIALNUMBER  FROM #MSSPPRODUCTSERVICES      
+       
+    --SELECT * from #UNLISTEDPRODUCTS      
+        
+   INSERT INTO #MSSPPRODUCTSERVICES ( TENANTID, SERIALNUMBER, PRODUCTID)        
+   SELECT TENANTID, SERIALNUMBER, MMPS.PRODUCTID      
+   FROM #UNLISTEDPRODUCTS U WITH (NOLOCK), MASTERMSSPPRODUCTSERVICES MMPS WITH (NOLOCK)       
+   WHERE U.PRODUCTID = MMPS.PRODUCTID          
+   GROUP BY TENANTID, SERIALNUMBER, MMPS.PRODUCTID;      
+      
+     --SELECT * from #MSSPPRODUCTSERVICES      
+      
+     INSERT  INTO #TEMPLISTTABLE            
+       ( PRODUCTID ,            
+         SERIALNUMBER ,                                 
+         PRODUCTFAMILY,          
+          PRODUCTLINE,          
+          ACTIVEPROMOTION           
+                
+       )                                 
+    SELECT CPS.PRODUCTID, CPS.SERIALNUMBER, PRODUCTFAMILY,      
+    PRODUCTLINE, ACTIVEPROMOTION from #MSSPPRODUCTSERVICES M WITH (NOLOCK),      
+    CUSTOMERPRODUCTSSUMMARY CPS WITH (NOLOCK)      
+    WHERE M.SERIALNUMBER = CPS.SERIALNUMBER      
+    AND CPS.SERIALNUMBER NOT IN (SELECT SERIALNUMBER FROM #TEMPLISTTABLE)        
+      
+    UPDATE #TEMPLISTTABLE              
+ SET MSSPMONTHLYOPTION = CASE WHEN #TEMPLISTTABLE.PRODUCTID IN (SELECT MS.PRODUCTID      
+     FROM MASTERMSSPPRODUCTSERVICES MS WITH (NOLOCK), CUSTOMERPRODUCTS CP WITH (NOLOCK) WHERE      
+      CP.SERIALNUMBER = #TEMPLISTTABLE.SERIALNUMBER AND MS.STATUS='ACTIVE' AND CP.MSSPMONTHLY = 'YES')      
+  THEN 'DISABLE' -- MSSP Monthly is enabled, hence show disable option      
+      
+  WHEN #TEMPLISTTABLE.PRODUCTID IN (SELECT MS.PRODUCTID      
+     FROM MASTERMSSPPRODUCTSERVICES MS WITH (NOLOCK), CUSTOMERPRODUCTS CP WITH (NOLOCK) WHERE      
+     CP.SERIALNUMBER = #TEMPLISTTABLE.SERIALNUMBER AND MS.STATUS='ACTIVE' AND ISNULL(CP.MSSPMONTHLY,'NO') = 'NO')      
+  THEN 'ENABLE' END -- MSSP Monthly is disabled, hence show enable option      
+      
+  IF(@ROLETYPELOGIC='YES')        
+  BEGIN         
+        
+        
+UPDATE #TEMPLISTTABLE        
+    SET ROLETYPE =        
+  CASE        
+  (SELECT TOP 1 ISSUPERADMIN FROM TENANTGROUPPERMISSIONSUMMARY WITH (NOLOCK) WHERE USERNAME=@USERNAME AND PRODUCTGROUPID=P.PRODUCTGROUPID        
+  AND PARTYID IN (SELECT PARTYID FROM PARTY(NOLOCK) WHERE CONTACTID = @CONTACTID)) WHEN 'YES' THEN 'SUPERADMIN'        
+  ELSE         
+  ISNULL((SELECT TOP 1 ACCESSTYPEPRODMGMTROLETYPE         
+  FROM TENANTGROUPPERMISSIONSUMMARY WITH (NOLOCK) WHERE USERNAME=@USERNAME AND PRODUCTGROUPID=P.PRODUCTGROUPID AND PARTYID IN (SELECT PARTYID FROM PARTY(NOLOCK) WHERE CONTACTID = @CONTACTID))         
+  ,dbo.FNGETTENANTGROUPPERMISSION(@USERNAME,P.PRODUCTGROUPID,@APPLICATIONFUNCTIONALITY,'MSSPUSER', DEFAULT))        
+  END        
+  FROM #TEMPLISTTABLE P  WITH (NOLOCK) WHERE MSSPMONTHLYOPTION='DISABLE'      
+        
+END         
+IF(@ROLETYPELOGIC='NO') OR          
+ EXISTS(SELECT T.PRODUCTGROUPID FROM #TEMPLISTTABLE T   WITH (NOLOCK)        
+   INNER JOIN  TENANTACTIVITYSTAGING CP WITH (NOLOCK)          
+   ON T.PRODUCTGROUPID=CP.PRODUCTGROUPID        
+   AND PROCESSED='NO')         
+BEGIN         
+ UPDATE #TEMPLISTTABLE          
+   SET ROLETYPE = DBO.FNGETTENANTGROUPPERMISSION(@USERNAME,T.PRODUCTGROUPID,'ACCESSTYPEPRODMGMT','MSSPUSER', DEFAULT)          
+   FROM #TEMPLISTTABLE T        
+END        
+      
+IF EXISTS (SELECT APPLICATIONPARTYROLEID FROM APPLICATIONPARTYROLE NOLOCK WHERE PARTYID=(SELECT TOP 1 PARTYID FROM VCUSTOMER(NOLOCK) WHERE USERNAME=@USERNAME) AND           
+  APPLICATIONROLEID IN(SELECT APPLICATIONROLEID FROM APPLICATIONROLE NOLOCK WHERE ROLENAME='WORKSPACEBETA' AND APPLICATIONNAME='MSW')) OR          
+  EXISTS(SELECT * FROM APPLICATIONCONFIGVALUE NOLOCK WHERE APPLICATIONCONFIGNAME='ISWORKSPACEENABLED' AND APPLICATIONCONFIGVALUE='FORCED')           
+  BEGIN          
+   UPDATE #TEMPLISTTABLE            
+   SET ISTRANSFERALLOWED =CASE WHEN PRODUCTID IN (  400  ) THEN 'NO' WHEN ACTIVEPROMOTION =1 AND @ROLLUP = 0 THEN 'NO'           
+   WHEN  PRODUCTLINE='STORAGE MODULE' OR PRODUCTLINE='SATA MODULE' OR PRODUCTLINE='M2 STORAGE MODULE' THEN 'NO' WHEN S1SVCSTATUS = 'PENDING' THEN 'NO' ELSE 'YES' END          
+          
+    UPDATE #TEMPLISTTABLE           
+  SET ISTRANSFERALLOWED = CASE WHEN UPPER(ROLETYPE) IN ('READONLY','OPERATOR') THEN 'NO' ELSE ISTRANSFERALLOWED END        
+   FROM  #TEMPLISTTABLE TMP           
+  END          
+  ELSE          
+  BEGIN          
+  UPDATE #TEMPLISTTABLE            
+   SET ISTRANSFERALLOWED =CASE WHEN OWNEROFTHEPRODUCT!=1 THEN 'NO' WHEN PRODUCTID IN ( 401 ) THEN 'NO' WHEN ACTIVEPROMOTION =1 AND @ROLLUP = 0 THEN 'NO'            
+   WHEN  PRODUCTLINE='STORAGE MODULE' OR PRODUCTLINE='SATA MODULE' OR PRODUCTLINE='M2 STORAGE MODULE' THEN 'NO' WHEN S1SVCSTATUS = 'PENDING' THEN 'NO' ELSE 'YES' END           
+  END        
+      
+ --UPDATE #TEMPLISTTABLE              
+ --SET MSSPMONTHLYOPTION = CASE WHEN ISNULL(PG.MASTERMSSPID,0)=0 THEN ''       
+ --WHEN ISNULL(PG.MASTERMSSPID,0)>0 AND PG.ISMAPPEDMSSPID=1 THEN '' ELSE MSSPMONTHLYOPTION END      
+ --FROM #TEMPLISTTABLE T,  DBO.FNNONMSSPTENANTSLIST(@USERNAME) PG       
+ --WHERE T.PRODUCTGROUPID=PG.PRODUCTGROUPID      
+      
+   DROP TABLE #MSSPTENANTS      
+   DROP TABLE #tMSSPIDS      
+   DROP TABLE #UNLISTEDPRODUCTS      
+   DROP TABLE #MSSPPRODUCTSERVICES      
+                
+ END      
+      
+ UPDATE  #TEMPLISTTABLE            
+    SET     OWNEROFTHEPRODUCT = 1            
+    WHERE   SERIALNUMBER IN ( SELECT SERIALNUMBER            
+                              FROM      CUSTOMERPRODUCTSSUMMARY WITH ( NOLOCK )            
+                              WHERE     USERNAME = @USERNAME )         
+      
+      
+IF @ORGBASEDASSETOWNSERSHIPENABLED = 'YES' AND @ISORGBASEDACCOUNT = 'YES'      
+BEGIN      
+      
+ UPDATE  #TEMPLISTTABLE            
+    SET     OWNEROFTHEPRODUCT = 1       
+ WHERE OWNEROFTHEPRODUCT = 0  AND SERIALNUMBER IN (SELECT SERIALNUMBER            
+                              FROM      CUSTOMERPRODUCTS WITH ( NOLOCK )            
+                              WHERE  USERNAME IN (SELECT USERNAME FROM vCUSTOMER WHERE ORGANIZATIONID = @ORGID))      
+                
+      
+END      
+                                          
+    UPDATE  #TEMPLISTTABLE            
+    SET     PRODUCTOWNER = @USERNAME                    
+                          
+    UPDATE  #TEMPLISTTABLE              
+    SET     PRODUCTOWNER = CP.USERNAME ,      
+ PRODUCTGROUPID =   CP.PRODUCTGROUPID ,            
+    PRODUCTGROUPNAME =  CP.PRODUCTGROUPNAME       
+    FROM    #TEMPLISTTABLE T ,              
+            CUSTOMERPRODUCTSSUMMARY CP WITH ( NOLOCK )              
+    WHERE   T.SERIALNUMBER = CP.SERIALNUMBER              
+            AND T.OWNEROFTHEPRODUCT = 0       
+                     
+                          
+    IF ( @ORDERNAME IS NULL )            
+        OR ( @ORDERNAME = '' )             
+        SELECT  @ORDERNAME = 'NAME'                               
+    IF ( @ORDERTYPE IS NULL )            
+        OR ( @ORDERTYPE = '' )             
+        SELECT  @ORDERTYPE = 0                    
+          
+                  
+    IF @APPNAME IN ( 'MSW', 'CHANNEL' )             
+    BEGIN            
+  -- Dont show Cloud tenant 2.0(NFR = 10) and CSCMA 1.9(NFR = 11) tenant serial# My products only in MSW          
+  DELETE  #TEMPLISTTABLE FROM #TEMPLISTTABLE T            
+  WHERE   T.PRODUCTID = 400            
+  AND T.SERIALNUMBER in (SELECT SERIALNUMBER FROM PRODUCTSERIALNUMBERS PSN (nolock) WHERE PSN.SERIALNUMBER = T.SERIALNUMBER AND PSN.PRODUCTID = 400 AND NFR IN (10, 11))            
+            
+          
+  --If AppName = 'MSW', then only return those srl nos where OEMCode = @OEMCODE              
+  DELETE  FROM #TEMPLISTTABLE            
+    WHERE   PRODUCTID NOT IN ( SELECT   PRODUCTID            
+             FROM     PRODUCTS WITH ( NOLOCK )            
+  WHERE    OEMCODE = @OEMCODE )              
+    END                  
+                  
+          
+                             
+                    
+    IF ISNULL(@OEMCODE, '') = 'HGMS'             
+        BEGIN            
+            UPDATE  #TEMPLISTTABLE            
+            SET     PRODUCTFAMILY = NULL            
+            
+            UPDATE  #TEMPLISTTABLE            
+            SET     PRODUCTFAMILY = 'Click here to Login'            
+            FROM    #TEMPLISTTABLE T ,            
+                    HOSTEDGMSDETAILS H ( NOLOCK )            
+            WHERE   T.SERIALNUMBER = H.SERIALNUMBER         
+AND H.STATUS = 'SUCCESS'            
+        END           
+           
+IF @ORGBASEDASSETOWNSERSHIPENABLED = 'YES' AND @ISORGBASEDACCOUNT = 'YES'      
+BEGIN      
+-- Restrict Product Operations such as Rename, Transfer and Delete when user has gained Access through Affiliation Tenant scope with Read-only Access (MSW-25825)      
+      
+ UPDATE  #TEMPLISTTABLE            
+    SET     ISRENAMEALLOWED = 'NO',      
+ ISDELETEALLOWED = 'NO',      
+ ISTRANSFERALLOWED = 'NO'      
+ WHERE OWNEROFTHEPRODUCT = 0  AND PRODUCTGROUPID IN       
+  (SELECT PRODUCTGROUPID FROM PARTYPRODUCTGROUP WITH (NOLOCK)      
+  WHERE ISNULL(COMANAGEORGTRACKERID,0) > 0 AND PERMISSIONTYPEID IN (SELECT PERMISSIONTYPEID FROM PERMISSIONTYPE WITH (NOLOCK) WHERE      
+  INTERNALDESCRIPTION = 'READONLY'))      
+                
+END      
+            
+ if @SOURCE ='RESTAPI' AND @ISLARGEUSER = 'NO'          
+  begin          
+   DECLARE @TPARTYPRODUCTGRPDETAIL TABLE  
+   (  
+   CONTACTID INT,  
+   SERIALNUMBER VARCHAR(30),  
+   PARTYGROUPID INT,  
+   PARTYGROUPNAME NVARCHAR(255)  
+   )      
+  INSERT INTO @TPARTYPRODUCTGRPDETAIL SELECT CONTACTID,SERIALNUMBER,PARTYGROUPID,PARTYGROUPNAME FROM VWPARTYPRODUCTGROUPDETAIL WITH (NOLOCK) WHERE CONTACTID=@CONTACTID     
+  UPDATE  #TEMPLISTTABLE            
+    SET     PARTYGROUPIDS = stuff((select  distinct ',' + convert(varchar,vw.PARTYGROUPID) from @TPARTYPRODUCTGRPDETAIL vw          
+   where vw.SERIALNUMBER = TMP.SERIALNUMBER for xml path('')),1,1,'') + ','           
+    FROM    #TEMPLISTTABLE TMP            
+            
+          
+    UPDATE  #TEMPLISTTABLE            
+    SET     PARTYGROUPNAMES = stuff((select distinct ',' + vw.PARTYGROUPNAME from @TPARTYPRODUCTGRPDETAIL vw        
+    where vw.SERIALNUMBER = TMP.SERIALNUMBER for xml path('')),1,1,'') + ','             
+    FROM    #TEMPLISTTABLE TMP            
+           
+ --   UPDATE  #TEMPLISTTABLE            
+ --   SET     PRODUCTGROUPIDS = stuff((select  distinct ',' + convert(varchar,vw.PRODUCTGROUPID) from VWPARTYPRODUCTGROUPDETAIL vw    (NOLOCK)          
+ --where vw.SERIALNUMBER = TMP.SERIALNUMBER and VW.CONTACTID = @CONTACTID  for xml path('')),1,1,'') + ','           
+ --   FROM    #TEMPLISTTABLE TMP            
+            
+        
+  end        
+          
+    --IF @SOURCE ='RESTAPI' AND @ISLARGEUSER = 'YES'        
+    --BEGIN        
+        UPDATE #TEMPLISTTABLE SET PRODUCTGROUPNAMES = ISNULL(CP.PRODUCTGROUPNAME,T.PRODUCTGROUPNAME)        
+  ,PRODUCTGROUPIDS= ISNULL(CP.PRODUCTGROUPID, T.PRODUCTGROUPID)        
+  FROM #TEMPLISTTABLE T WITH (NOLOCK)           
+  inner join CUSTOMERPRODUCTSSUMMARY cp with (nolock)        
+  on cp.serialnumber=t.serialnumber      
+        
+  --select * from #TEMPLISTTABLE      
+               
+ UPDATE  #TEMPLISTTABLE            
+  SET  ISLICENSEEXPIRED = 1 , LICENSEEXPIRYCNT=1            
+  WHERE   LICENSEEXPIRYCNT > 0          
+          
+  UPDATE  #TEMPLISTTABLE            
+  SET  ISSOONEXPIRING = 1 , SOONEXPIRINGCNT = 1            
+  WHERE   SOONEXPIRINGCNT > 0          
+          
+  UPDATE  #TEMPLISTTABLE            
+  SET   ACTIVELICENSECNT = 1            
+  WHERE   ACTIVELICENSECNT > 0              
+          
+            IF ( @OutformatXML = 0 )             
+                BEGIN             
+              
+              
+              --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)  
+               
+                         IF @PRODUCTLIST = 'LIMIT'             
+                         BEGIN     
+                             -- Apply pagination logic for LIMITED results
+                             DECLARE @LimitStartRow INT, @LimitEndRow INT, @LimitTotalCount INT
+                             SET @LimitStartRow = (@PAGENO - 1) * @PAGESIZE + 1
+                             SET @LimitEndRow = @PAGENO * @PAGESIZE
+
+                             -- Get total count first
+                             SELECT @LimitTotalCount = COUNT(*) 
+                             FROM CUSTOMERPRODUCTSSUMMARY C with (nolock)
+                             INNER JOIN #TEMPLISTTABLE AS PRODUCT ON C.serialnumber = PRODUCT.serialnumber
+
+                             -- Apply min/max count filters if specified
+                             IF (@MINCOUNT IS NOT NULL AND @LimitTotalCount < @MINCOUNT) OR 
+                                (@MAXCOUNT IS NOT NULL AND @LimitTotalCount > @MAXCOUNT)
+                             BEGIN
+                                 SELECT 'No records match the count criteria' AS Message, 
+                                        @LimitTotalCount AS TotalCount, 
+                                        @MINCOUNT AS MinCount, 
+                                        @MAXCOUNT AS MaxCount
+                                 RETURN
+                             END
+
+                             ;WITH LimitedPaginatedResults AS (
+                                 SELECT DISTINCT            
+                                C.PRODUCTID ,            
+                                C.SERIALNUMBER ,            
+                                C.[NAME] ,            
+                                C.CUSTOMERPRODUCTID ,            
+                                C.STATUS ,            
+                                C.REGISTRATIONCODE ,            
+                                C.FIRMWAREVERSION ,            
+                                 PRODUCT.PRODUCTLINE ,            
+                                C.PRODUCTFAMILY ,            
+                                C.ACTIVEPROMOTION ,            
+                                C.PROMOTIONID ,            
+                                C.NFR ,            
+                                PRODUCT.OWNEROFTHEPRODUCT ,            
+                                PRODUCT.PRODUCTOWNER ,            
+                                C.ISSUENAME ,            
+                                C.RESOLUTIONNAME ,            
+                                C.PRODUCTNAME ,            
+                                C.PRODUCTGROUPID ,            
+                                C.PRODUCTGROUPNAME ,            
+                                PRODUCT.PARTYGROUPNAMES,          
+                                C.RELEASESTATUS,          
+                                C.DISPLAYKEYSET ,            
+                                C.ASSOCIATIONTYPE ,            
+                                C.GROUPHEADERTEXT ,            
+                                C.ASSOCIATIONTYPEID ,            
+                                C.ISEPRS ,            
+                                C.CREATEDDATE AS REGISTRATIONDATE ,      
+                             --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,    
+                          C.LASTPINGDATE AS LASTPINGDATE,  
+                                C.REMOVEASSOCIATION ,            
+                          C.DELETEDM ,            
+                                C.REGCODE ,            
+                                C.HGMSPROVISIONINGSTATUS,          
+                              C.MCAFEEORDER,          
+                                C.DEVICESTATUS,          
+                                PRODUCT.ISDELETEALLOWED,          
+                                PRODUCT.ISTRANSFERALLOWED,          
+                                PRODUCT.ISRENAMEALLOWED,          
+                                PRODUCT.ISSECUREUPGRADE,          
+                                C.PTAB,          
+                                C.LTAB,          
+                                C.CBKUPTAB,          
+                                C.FWTAB,          
+                                C.S1SVCSTATUS,          
+                                C.SENTINELONEEXPIRYDATE,          
+                                C.PRODUCTTYPE,          
+                                PRODUCT.LICENSEEXPIRYCNT,          
+                                PRODUCT.SOONEXPIRINGCNT,          
+                                PRODUCT.ACTIVELICENSECNT,          
+                                PRODUCT.ISLICENSEEXPIRED,          
+                           PRODUCT.ISSOONEXPIRING,          
+                                PRODUCT.MINLICENSEEXPIRYDATE,          
+                                PRODUCT.SOONEXPIRYDATE,          
+                                PRODUCT.CCNODECOUNT,          
+                                PRODUCT.HESNODECOUNT,          
+                                PRODUCT.CASNODECOUNT,          
+                              PRODUCT.GMSNODECOUNT,
+                              C.EPAID ,
+                              C.SERVICELINE,
+                              C.ISBILLABLE,          
+                               -- C.ISDOWNLOADAVAILABLE,       
+                                C.UPDATESAVAILABLE 'ISDOWNLOADAVAILABLE',          
+                                C.ISZTSUPPORTED ,          
+                                C.SUPPORTEXPIRYDATE,          
+                                C.NONSUPPORTEXPIRYDATE,
+                                PRODUCT.SASELICENSECOUNT,
+                                C.ISZEROTOUCHALLOWED, 
+                                PRODUCT.ORGNAME, 
+                                PRODUCT.ISADDKEYSETAPPLICABLE, 
+                                PRODUCT.MSSPMONTHLYOPTION,
+                                C.ISNETWORKPRODUCT,      
+                                PRODUCT.EMAILADDRESS,      
+                                PRODUCT.DESCRIPTION , 
+                                PRODUCT.ISSHAREDTENANT ,
+                                PRODUCTCHOICEID,
+                                C.VULTOOLTIPTEXT, 
+                                C.VULHREFTEXT,
+                                C.VULSEVERITY, 
+                                CU.MANAGEMENTOPTION,
+                                ROW_NUMBER() OVER (ORDER BY C.CREATEDDATE DESC) AS RowNum,
+                                @LimitTotalCount AS TotalCount
+                                             FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+                                inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber  
+                             Left join CUSTOMERPRODUCTS CU WITH (NOLOCK) ON CU.SERIALNUMBER = C.serialnumber  
+                             )
+                             SELECT * FROM LimitedPaginatedResults 
+                             WHERE RowNum BETWEEN @LimitStartRow AND @LimitEndRow                                                            
+                             RETURN               
+                        END             
+                    ELSE             
+                        BEGIN      
+            
+       --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)  
+                 
+          
+                                               -- Apply pagination logic
+                        DECLARE @StartRow INT, @EndRow INT
+                        SET @StartRow = (@PAGENO - 1) * @PAGESIZE + 1
+                        SET @EndRow = @PAGENO * @PAGESIZE
+
+                        -- Get total count first
+                        DECLARE @TotalCount INT
+                        SELECT @TotalCount = COUNT(*) 
+                        FROM CUSTOMERPRODUCTSSUMMARY C with (nolock)
+                        INNER JOIN #TEMPLISTTABLE AS t ON C.serialnumber = t.serialnumber
+
+                        -- Apply min/max count filters if specified
+                        IF (@MINCOUNT IS NOT NULL AND @TotalCount < @MINCOUNT) OR 
+                           (@MAXCOUNT IS NOT NULL AND @TotalCount > @MAXCOUNT)
+                        BEGIN
+                            -- Return empty result set if count doesn't meet criteria
+                            SELECT 'No records match the count criteria' AS Message, 
+                                   @TotalCount AS TotalCount, 
+                                   @MINCOUNT AS MinCount, 
+                                   @MAXCOUNT AS MaxCount
+                            RETURN
+                        END
+
+                        ;WITH PaginatedResults AS (
+                            SELECT DISTINCT              
+                             t.CID,             
+                             C.PRODUCTID ,              
+                             C.SERIALNUMBER ,              
+                             C.[NAME] ,              
+                             C.CUSTOMERPRODUCTID ,              
+                             C.STATUS ,              
+                             C.REGISTRATIONCODE ,              
+                             C.FIRMWAREVERSION ,              
+                              t.PRODUCTLINE ,                
+                             C.PRODUCTFAMILY ,              
+                             C.ACTIVEPROMOTION ,              
+                             C.PROMOTIONID ,              
+                             C.NFR ,              
+                            t.OWNEROFTHEPRODUCT ,              
+                             t.PRODUCTOWNER ,              
+                             C.ISSUENAME ,              
+                             C.RESOLUTIONNAME ,              
+                             C.PRODUCTNAME ,              
+                             C.PRODUCTGROUPID ,          
+                             C.PRODUCTGROUPNAME ,            
+                             t.PARTYGROUPNAMES,            
+                             C.RELEASESTATUS,            
+                             C.DISPLAYKEYSET ,              
+                             C.ASSOCIATIONTYPE ,              
+                             C.GROUPHEADERTEXT ,              
+                             C.ASSOCIATIONTYPEID ,              
+                             C.ISEPRS ,              
+                             C.CREATEDDATE AS REGISTRATIONDATE ,       
+                             --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,  
+                          C.LASTPINGDATE AS LASTPINGDATE,  
+                             C.REMOVEASSOCIATION ,              
+                             C.DELETEDM ,              
+                             C.REGCODE ,              
+                             t.NEEDEDFIRMWAREVERSION ,              
+                             t.FIRMWARESTATUS ,              
+                             t.FIRMWARETEXT ,              
+                             C.SRLNOSTATUS ,              
+                             C.RELEASENOTES ,              
+                             C.HGMSPROVISIONINGSTATUS,            
+                             C.MCAFEEORDER,            
+                             C.DEVICESTATUS,            
+                             t.ISDELETEALLOWED,            
+                             t.ISTRANSFERALLOWED,            
+                             t.ISRENAMEALLOWED,            
+                             t.ISSECUREUPGRADE,            
+                             C.SUPPORTDATE,            
+                             t.PRODUCTGROUPNAMES,            
+                             C.PTAB,            
+                             C.LTAB,            
+                             C.CBKUPTAB,            
+                             C.FWTAB,            
+                             C.S1SVCSTATUS,            
+                             C.SENTINELONEEXPIRYDATE,            
+                             C.PRODUCTTYPE,            
+                             t.LICENSEEXPIRYCNT,            
+                             t.SOONEXPIRINGCNT,            
+                             t.ACTIVELICENSECNT,            
+                             t.ISLICENSEEXPIRED,            
+                             t.ISSOONEXPIRING,            
+                             t.MINLICENSEEXPIRYDATE,            
+                             t.SOONEXPIRYDATE,            
+                             t.CCNODECOUNT,            
+                             t.HESNODECOUNT,            
+                            t.CASNODECOUNT,            
+                             t.GMSNODECOUNT,          
+                             C.EPAID ,          
+                             C.SERVICELINE,          
+                             C.ISBILLABLE ,            
+                            --C.ISDOWNLOADAVAILABLE,       
+                                                     C.UPDATESAVAILABLE 'ISDOWNLOADAVAILABLE',            
+                             C.ISZTSUPPORTED,            
+                             C.SUPPORTEXPIRYDATE,            
+                             C.NONSUPPORTEXPIRYDATE ,            
+                             t.ROLETYPE ,          
+                             t.SASELICENSECOUNT,          
+                             C.ISZEROTOUCHALLOWED,           
+                             t.ORGNAME,      
+                             t.ISADDKEYSETAPPLICABLE,      
+                             t.MSSPMONTHLYOPTION,      
+                             C.ISNETWORKPRODUCT,       
+                             t.EMAILADDRESS,      
+                             t.DESCRIPTION , 
+                             t.ISSHAREDTENANT,
+                             PRODUCTCHOICEID,
+                             C.VULTOOLTIPTEXT, 
+                             C.VULHREFTEXT,
+                             C.VULSEVERITY,
+                             t.MANAGEMENTOPTION,
+                             t.ORGID,
+                             ROW_NUMBER() OVER (ORDER BY C.CREATEDDATE DESC) AS RowNum,
+                             @TotalCount AS TotalCount
+                           FROM  CUSTOMERPRODUCTSSUMMARY C with (nolock)  
+                           INNER JOIN #TEMPLISTTABLE AS t ON C.serialnumber = t.serialnumber          
+                        )
+                        SELECT * FROM PaginatedResults 
+                        WHERE RowNum BETWEEN @StartRow AND @EndRow          
+               
+   INSERT INTO @PRODGROUPTABLE (PRODUCTGROUPID, PRODUCTGROUPNAME)      
+       SELECT DISTINCT PRODUCTGROUPID, PRODUCTGROUPNAME FROM #TEMPLISTTABLE   AS t WHERE PRODUCTGROUPID IS NOT NULL        
+UPDATE @PRODGROUPTABLE      
+   SET TOTALPRODUCTSCNT = (SELECT COUNT(t.PRODUCTGROUPID)      
+                   FROM #TEMPLISTTABLE t      
+                  WHERE t.PRODUCTGROUPID = P.PRODUCTGROUPID)      
+  FROM @PRODGROUPTABLE P       
+      
+  UPDATE @PRODGROUPTABLE      
+   SET EXPIREDPRODUCTSCNT = (SELECT COUNT(t.PRODUCTGROUPID)      
+                   FROM #TEMPLISTTABLE t      
+                  WHERE t.PRODUCTGROUPID = P.PRODUCTGROUPID      
+      AND ISLICENSEEXPIRED = 1 AND MINLICENSEEXPIRYDATE IS NOT NULL)      
+  FROM @PRODGROUPTABLE P       
+      
+  UPDATE @PRODGROUPTABLE      
+   SET SOONEXPIRINGPRODDUCTSCNT = (SELECT COUNT(t.PRODUCTGROUPID)      
+                   FROM #TEMPLISTTABLE t      
+                  WHERE t.PRODUCTGROUPID = P.PRODUCTGROUPID      
+      AND  ISSOONEXPIRING = 1 AND SOONEXPIRYDATE IS NOT NULL)      
+  FROM @PRODGROUPTABLE P       
+      
+  UPDATE @PRODGROUPTABLE      
+   SET ACTIVEPRODUCTSCNT = ISNULL((SELECT SUM(ACTIVELICENSECNT)       
+                   FROM #TEMPLISTTABLE t      
+                  WHERE t.PRODUCTGROUPID = P.PRODUCTGROUPID),0)      
+  FROM @PRODGROUPTABLE P       
+      
+   UPDATE @PRODGROUPTABLE      
+    SET FIREWALLCNT =  (SELECT COUNT(t.PRODUCTGROUPID)      
+                   FROM #TEMPLISTTABLE t,  CUSTOMERPRODUCTSSUMMARY C with (nolock)         
+                  WHERE t.PRODUCTGROUPID = P.PRODUCTGROUPID      
+      AND C.serialnumber=t.serialnumber              
+      AND  C.PRODUCTTYPE = 'Firewall')      
+   FROM @PRODGROUPTABLE P      
+      
+  UPDATE @PRODGROUPTABLE      
+    SET ACCESSPOINTCNT =  (SELECT COUNT(t.PRODUCTGROUPID)      
+                  FROM #TEMPLISTTABLE t,  CUSTOMERPRODUCTSSUMMARY C with (nolock)         
+                  WHERE t.PRODUCTGROUPID = P.PRODUCTGROUPID      
+      AND C.serialnumber=t.serialnumber              
+      AND  C.PRODUCTTYPE = 'Access Points')      
+   FROM @PRODGROUPTABLE P       
+      
+       
+  IF ISNULL(@APPLICATIONNAME,'') <> 'MSWANDROID' AND @ISPRODUCTGROUPTABLENEEDED = 'YES'      
+ BEGIN      
+  SELECT * FROM @PRODGROUPTABLE      
+ END      
+                  RETURN                    
+                        END                 
+              END                
+            ELSE             
+                BEGIN      
+ --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)      
+                   IF @PRODUCTLIST = 'LIMIT'             
+                        BEGIN              
+                            SELECT DISTINCT TOP 10            
+       C.PRODUCTID ,            
+       C.SERIALNUMBER ,            
+       C.[NAME] ,            
+       C.CUSTOMERPRODUCTID ,            
+       C.STATUS ,            
+       C.REGISTRATIONCODE ,            
+       C.FIRMWAREVERSION ,            
+        PRODUCT.PRODUCTLINE ,            
+       C.PRODUCTFAMILY ,            
+       C.ACTIVEPROMOTION ,            
+       C.PROMOTIONID ,            
+       C.NFR ,            
+       PRODUCT.OWNEROFTHEPRODUCT ,            
+       PRODUCT.PRODUCTOWNER ,            
+       C.ISSUENAME ,            
+       C.RESOLUTIONNAME ,            
+       C.PRODUCTNAME ,            
+       C.PRODUCTGROUPID ,            
+       C.PRODUCTGROUPNAME ,            
+       C.DISPLAYKEYSET ,            
+       C.ASSOCIATIONTYPE ,            
+       C.GROUPHEADERTEXT ,            
+       C.ISEPRS ,            
+       C.CREATEDDATE AS REGISTRATIONDATE,       
+    --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,   
+ C.LASTPINGDATE AS LASTPINGDATE,  
+       C.HGMSPROVISIONINGSTATUS,          
+       C.DEVICESTATUS,          
+       PRODUCT.ISDELETEALLOWED,          
+       PRODUCT.ISTRANSFERALLOWED,          
+       PRODUCT.ISRENAMEALLOWED,          
+       PRODUCT.ISSECUREUPGRADE,          
+       C.LTAB,          
+     C.CBKUPTAB,          
+       C.FWTAB,          
+       C.SENTINELONEEXPIRYDATE  ,         
+       C.PRODUCTTYPE,          
+       PRODUCT.LICENSEEXPIRYCNT,          
+       PRODUCT.SOONEXPIRINGCNT,          
+       PRODUCT.ACTIVELICENSECNT,     
+       PRODUCT.MINLICENSEEXPIRYDATE,          
+       PRODUCT.SOONEXPIRYDATE,C.EPAID ,C.SERVICELINE,C.ISBILLABLE ,          
+       C.SUPPORTEXPIRYDATE,          
+       C.NONSUPPORTEXPIRYDATE ,          
+       PRODUCT.ROLETYPE  ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED, PRODUCT.ORGNAME, PRODUCT.ISADDKEYSETAPPLICABLE,      
+    PRODUCT.MSSPMONTHLYOPTION,      
+    C.ISNETWORKPRODUCT , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT ,PRODUCTCHOICEID ,C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY,PRODUCT.MANAGEMENTOPTION,PRODUCT.ORGID       
+      FROM  CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+        ,  #TEMPLISTTABLE   AS PRODUCT   where   C.serialnumber=PRODUCT.serialnumber          
+                            ORDER BY C.CREATEDDATE DESC            
+                            FOR     XML AUTO ,            
+           ELEMENTS                                     
+    RETURN               
+                        END            
+ ELSE             
+                        BEGIN       
+ --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)        
+                            SELECT DISTINCT            
+     C.PRODUCTID ,            
+        C.SERIALNUMBER ,            
+        C.[NAME] ,            
+        C.CUSTOMERPRODUCTID ,            
+        C.STATUS ,            
+        C.REGISTRATIONCODE ,            
+        C.FIRMWAREVERSION ,            
+         PRODUCT.PRODUCTLINE ,            
+        C.PRODUCTFAMILY ,            
+        C.ACTIVEPROMOTION ,            
+        C.PROMOTIONID ,            
+        C.NFR ,            
+        PRODUCT.OWNEROFTHEPRODUCT ,            
+        PRODUCT.PRODUCTOWNER ,            
+        C.ISSUENAME ,            
+        C.RESOLUTIONNAME ,            
+        C.PRODUCTNAME ,            
+        C.PRODUCTGROUPID ,            
+        C.PRODUCTGROUPNAME ,            
+        C.DISPLAYKEYSET ,            
+        C.ASSOCIATIONTYPE ,            
+        C.GROUPHEADERTEXT ,            
+        C.ISEPRS ,            
+        C.CREATEDDATE AS REGISTRATIONDATE,      
+  --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,         
+  C.LASTPINGDATE AS LASTPINGDATE,  
+        C.HGMSPROVISIONINGSTATUS,          
+        C.DEVICESTATUS,          
+        PRODUCT.ISDELETEALLOWED,          
+        PRODUCT.ISTRANSFERALLOWED,          
+        PRODUCT.ISRENAMEALLOWED,          
+        PRODUCT.ISSECUREUPGRADE,          
+        C.SUPPORTDATE,          
+        c.SENTINELONEEXPIRYDATE,          
+        c.PRODUCTTYPE,          
+        c.EPAID ,          
+        c.SERVICELINE,          
+        c.ISBILLABLE,          
+        PRODUCT.ROLETYPE ,          
+        c.SASELICENSECOUNT,          
+        c.ISZEROTOUCHALLOWED,          
+        PRODUCT.ORGNAME,       
+   PRODUCT.ISADDKEYSETAPPLICABLE,          
+   PRODUCT.MSSPMONTHLYOPTION,      
+   C.ISNETWORKPRODUCT  , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT ,PRODUCTCHOICEID,  
+  C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY  
+                    FROM  CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+        ,  #TEMPLISTTABLE   AS PRODUCT   where   C.serialnumber=PRODUCT.serialnumber             
+              ORDER BY C.CREATEDDATE DESC            
+                  FOR     XML AUTO ,            
+  ELEMENTS                                     
+                    RETURN                  
+                END                                
+        END                
+                                  
+    IF @ORDERNAME = 'NAME'            
+        AND @ORDERTYPE = '1'             
+        BEGIN       
+      
+            IF ( @OutformatXML = 0 )             
+             BEGIN              
+                    IF ( @CallFrom = 'MYGROUPS' )             
+                        BEGIN            
+                                                  
+                            SELECT DISTINCT            
+       C.PRODUCTID ,            
+       C.SERIALNUMBER ,            
+       C.PRIMARYSERIALNUMBER ,            
+       C.ASSOCIATIONNAME ,            
+       C.[NAME] ,            
+       C.CUSTOMERPRODUCTID ,            
+       C.STATUS ,            
+       REPLACE(ISNULL(C.REGISTRATIONCODE, ''), ' ',            
+       '-') 'REGISTRATIONCODE' ,            
+       C.FIRMWAREVERSION ,            
+        PRODUCT.PRODUCTLINE ,            
+       C.PRODUCTFAMILY ,            
+       C.ACTIVEPROMOTION ,            
+       C. PROMOTIONID ,            
+       C.NFR ,            
+       PRODUCT.OWNEROFTHEPRODUCT ,            
+       PRODUCT. PRODUCTOWNER ,            
+       C.ISSUENAME ,            
+       C.RESOLUTIONNAME ,            
+       C.PRODUCTNAME ,            
+       PGD.PRODUCTGROUPID ,            
+       PG.PRODUCTGROUPNAME ,            
+       C.DISPLAYKEYSET ,            
+       C. ASSOCIATIONTYPE ,          
+       C.GROUPHEADERTEXT ,            
+  C.ASSOCIATIONTYPEID ,            
+       CONVERT(DATETIME,C. REGISTRATIONCODE) 'SUPPORTDATE' ,            
+       C.ISEPRS ,            
+       C.REMOVEASSOCIATION ,            
+       C.DELETEDM ,            
+       C.CREATEDDATE AS REGISTRATIONDATE,      
+    --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,     
+ C.LASTPINGDATE AS LASTPINGDATE,  
+       C.HGMSPROVISIONINGSTATUS,          
+       C.MCAFEEORDER,          
+       C.RELEASESTATUS,          
+       PRODUCT.PARTYGROUPIDS,          
+       C.PARTYGROUPNAME 'PARTYGROUPNAME',          
+       PRODUCT.PARTYGROUPNAMES,          
+       C.DEVICESTATUS,          
+       PRODUCT.PRODUCTGROUPNAMES,          
+       PRODUCT.PRODUCTGROUPIDS,          
+       C.FWTAB ,          
+       C.PTAB ,          
+       C.LTAB ,          
+       C.CBKUPTAB,          
+       C.ASSOCTYPEINTNAME,          
+       PRODUCT. ISDELETEALLOWED,          
+       PRODUCT.ISTRANSFERALLOWED,          
+       PRODUCT.ISRENAMEALLOWED,          
+       PRODUCT.ISSECUREUPGRADE,          
+       C.S1SVCSTATUS,          
+       C.SENTINELONEEXPIRYDATE,C.PRODUCTTYPE,C.EPAID ,C.SERVICELINE ,C.ISBILLABLE,PRODUCT.ROLETYPE ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED,       
+    PRODUCT.ORGNAME  , PRODUCT.ISADDKEYSETAPPLICABLE, PRODUCT.MSSPMONTHLYOPTION, C.ISNETWORKPRODUCT    , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT,PRODUCTCHOICEID,C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY        
+                            FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+       inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber           
+                                    LEFT OUTER JOIN PRODUCTGROUPDETAIL PGD            
+                                    WITH ( NOLOCK ) ON PGD.SERIALNUMBER = PRODUCT.SERIALNUMBER            
+                                    LEFT OUTER JOIN PRODUCTGROUP PG WITH ( NOLOCK ) ON PG.PRODUCTGROUPID = PGD.PRODUCTGROUPID            
+   ORDER BY [NAME] ASC ,            
+                              C.PRIMARYSERIALNUMBER DESC             
+                                   
+            SELECT * FROM @GROUPTABLE                                
+                 RETURN                 
+          END                
+                    ELSE             
+                        BEGIN                
+      
+           --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)  
+      
+      
+                            SELECT DISTINCT            
+       C.PRODUCTID ,            
+       C.SERIALNUMBER ,            
+       C.PRIMARYSERIALNUMBER ,            
+       C.ASSOCIATIONNAME ,            
+       C.[NAME] ,            
+       C.CUSTOMERPRODUCTID ,            
+       C.STATUS ,            
+       REPLACE(ISNULL(C.REGISTRATIONCODE, ''), ' ',            
+        '-') 'REGISTRATIONCODE' ,            
+       C.FIRMWAREVERSION ,            
+        PRODUCT.PRODUCTLINE ,            
+       C.PRODUCTFAMILY ,            
+       C.ACTIVEPROMOTION ,            
+       C.PROMOTIONID ,            
+       C.NFR ,            
+       PRODUCT.OWNEROFTHEPRODUCT ,            
+       PRODUCT.PRODUCTOWNER ,            
+       C.ISSUENAME ,            
+       C.RESOLUTIONNAME ,            
+       C.PRODUCTNAME ,            
+       C.PRODUCTGROUPID ,            
+       C.PRODUCTGROUPNAME ,            
+       C.DISPLAYKEYSET ,            
+       C.ASSOCIATIONTYPE ,            
+       C.GROUPHEADERTEXT ,            
+       C.ASSOCIATIONTYPEID ,            
+       CONVERT(DATETIME, C.REGISTRATIONCODE) 'SUPPORTDATE' ,            
+       C.ISEPRS ,            
+       C.REMOVEASSOCIATION,            
+       C.DELETEDM ,            
+       C.CREATEDDATE AS REGISTRATIONDATE,       
+    --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,   
+   C.LASTPINGDATE AS LASTPINGDATE,  
+       C.HGMSPROVISIONINGSTATUS,          
+       C.MCAFEEORDER,          
+       C.RELEASESTATUS,          
+      PRODUCT.PARTYGROUPIDS,          
+       C.PARTYGROUPNAME 'PARTYGROUPNAME',          
+ PRODUCT.PARTYGROUPNAMES,          
+       C.DEVICESTATUS,          
+       PRODUCT.PRODUCTGROUPNAMES,          
+       PRODUCT.PRODUCTGROUPIDS,          
+       C.FWTAB ,          
+       C.PTAB ,          
+       C.LTAB ,          
+       C.CBKUPTAB,          
+       C.ASSOCTYPEINTNAME,          
+       PRODUCT.ISDELETEALLOWED,          
+       PRODUCT.ISTRANSFERALLOWED,          
+       PRODUCT.ISRENAMEALLOWED,          
+       PRODUCT.ISSECUREUPGRADE ,          
+       C.S1SVCSTATUS,          
+       C.SENTINELONEEXPIRYDATE ,C.PRODUCTTYPE ,C.EPAID ,C.SERVICELINE ,C.ISBILLABLE,PRODUCT.ROLETYPE ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED,       
+    PRODUCT.ORGNAME , PRODUCT.ISADDKEYSETAPPLICABLE , PRODUCT.MSSPMONTHLYOPTION,C.ISNETWORKPRODUCT  , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION  , PRODUCT.ISSHAREDTENANT , PRODUCT.CONNECTORNAME   ,PRODUCTCHOICEID,C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY      
+                           FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+       inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber           
+                            ORDER BY C.[NAME] ASC ,            
+                                    C.PRIMARYSERIALNUMBER DESC          
+                         
+        SELECT * FROM @GROUPTABLE               
+        RETURN            
+             END             
+                END               
+            ELSE             
+                BEGIN         
+         --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)  
+                    SELECT DISTINCT            
+      C.PRODUCTID ,            
+      C.SERIALNUMBER ,            
+      C.[NAME] ,            
+      C.CUSTOMERPRODUCTID ,            
+      C.STATUS ,            
+      C.REGISTRATIONCODE ,            
+      C.FIRMWAREVERSION ,            
+       PRODUCT.PRODUCTLINE ,            
+      C.PRODUCTFAMILY ,            
+      C.ACTIVEPROMOTION ,            
+      C.PROMOTIONID ,            
+      C.NFR ,            
+      PRODUCT.OWNEROFTHEPRODUCT ,            
+      PRODUCT.PRODUCTOWNER ,            
+      C.ISSUENAME ,            
+      C.RESOLUTIONNAME ,            
+      C.PRODUCTNAME ,            
+      C.PRODUCTGROUPID ,           
+      C.PRODUCTGROUPNAME ,            
+      C.DISPLAYKEYSET ,            
+      C.ASSOCIATIONTYPE ,            
+      C.GROUPHEADERTEXT ,            
+      C.ISEPRS ,            
+      C.CREATEDDATE AS REGISTRATIONDATE,      
+  -- CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,   
+  C.LASTPINGDATE AS LASTPINGDATE,  
+      C.HGMSPROVISIONINGSTATUS,                 
+      PRODUCT.ISDELETEALLOWED,     
+      PRODUCT.ISTRANSFERALLOWED,          
+      PRODUCT.ISRENAMEALLOWED,          
+      PRODUCT.ISSECUREUPGRADE,          
+      C.SENTINELONEEXPIRYDATE  ,C.PRODUCTTYPE,C.EPAID ,C.SERVICELINE ,C.ISBILLABLE,PRODUCT.ROLETYPE ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED,       
+   PRODUCT.ORGNAME    , PRODUCT.ISADDKEYSETAPPLICABLE, PRODUCT.MSSPMONTHLYOPTION, C.ISNETWORKPRODUCT, PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT  , PRODUCT.CONNECTORNAME  ,PRODUCTCHOICEID,C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY      
+                  FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+       inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber           
+                    ORDER BY C.[NAME] ASC            
+                    FOR     XML AUTO ,            
+                                ELEMENTS                                     
+                    RETURN                
+                END                    
+        END                
+                                  
+   IF @ORDERNAME = 'PRODUCTLINE'            
+        AND @ORDERTYPE = '0'             
+        BEGIN   
+ --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)    
+            IF ( @OutformatXML = 0 )             
+                BEGIN                                     
+                    SELECT DISTINCT            
+      C.PRODUCTID ,            
+      C.SERIALNUMBER ,            
+      C.PRIMARYSERIALNUMBER ,            
+      C.ASSOCIATIONNAME ,            
+      C.[NAME] ,            
+      C.CUSTOMERPRODUCTID ,            
+      C.STATUS ,            
+      C.REGISTRATIONCODE ,            
+      C.FIRMWAREVERSION ,            
+       PRODUCT.PRODUCTLINE ,            
+      C.PRODUCTFAMILY ,            
+      C.ACTIVEPROMOTION ,            
+      C.PROMOTIONID ,            
+      C.NFR ,            
+      PRODUCT.OWNEROFTHEPRODUCT ,            
+      PRODUCT.PRODUCTOWNER ,            
+      C.ISSUENAME ,            
+      C.RESOLUTIONNAME ,            
+      C.PRODUCTNAME ,            
+      C.PRODUCTGROUPID ,            
+      C.PRODUCTGROUPNAME ,            
+      C.DISPLAYKEYSET ,            
+      C.ASSOCIATIONTYPE ,            
+      C.GROUPHEADERTEXT ,            
+      C.ASSOCIATIONTYPEID ,            
+      C.ISEPRS ,            
+      C.REMOVEASSOCIATION ,            
+      C.DELETEDM ,            
+      C.REGCODE ,            
+      C.CREATEDDATE AS REGISTRATIONDATE,      
+  -- CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,     
+     C.LASTPINGDATE AS LASTPINGDATE,  
+      C.HGMSPROVISIONINGSTATUS,          
+      C.MCAFEEORDER,          
+      PRODUCT.ISDELETEALLOWED,          
+      PRODUCT.ISTRANSFERALLOWED,          
+      PRODUCT.ISRENAMEALLOWED,          
+      PRODUCT.ISSECUREUPGRADE,          
+      C.S1SVCSTATUS,          
+      C.SENTINELONEEXPIRYDATE,          
+      C.PRODUCTTYPE,          
+      C.EPAID ,          
+      C.SERVICELINE ,C.ISBILLABLE,          
+      PRODUCT.ROLETYPE,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED, PRODUCT.ORGNAME, PRODUCT.ISADDKEYSETAPPLICABLE, PRODUCT.MSSPMONTHLYOPTION , C.ISNETWORKPRODUCT   , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION  , PRODUCT.ISSHAREDTENANT      ,PRODUCTCHOICEID, C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY     
+                     FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+       inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber            
+                    ORDER BY  PRODUCT.PRODUCTLINE DESC                                                            
+                    RETURN                  
+              END                
+      ELSE             
+                BEGIN    
+ --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)      
+                    SELECT DISTINCT            
+     C. PRODUCTID ,            
+     C.SERIALNUMBER ,            
+     C.PRIMARYSERIALNUMBER ,            
+     C.ASSOCIATIONNAME ,            
+     C.[NAME] ,            
+     C.CUSTOMERPRODUCTID ,            
+     C.STATUS ,            
+     C.REGISTRATIONCODE ,            
+     C.FIRMWAREVERSION ,            
+      PRODUCT.PRODUCTLINE ,            
+     C.PRODUCTFAMILY ,            
+     C.ACTIVEPROMOTION ,            
+     C.PROMOTIONID ,        
+     C.NFR ,            
+     PRODUCT.OWNEROFTHEPRODUCT ,            
+     PRODUCT.PRODUCTOWNER ,            
+     C.ISSUENAME ,            
+     C.RESOLUTIONNAME ,            
+     C.PRODUCTNAME ,            
+     C.PRODUCTGROUPID ,            
+     C.PRODUCTGROUPNAME ,            
+     C.DISPLAYKEYSET ,            
+     C.ASSOCIATIONTYPE ,            
+     C.GROUPHEADERTEXT ,            
+     C.ASSOCIATIONTYPEID ,            
+     C.ISEPRS ,            
+     C.REMOVEASSOCIATION ,            
+     C.DELETEDM ,            
+     C.CREATEDDATE AS REGISTRATIONDATE,      
+ --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,  
+   C.LASTPINGDATE AS LASTPINGDATE,  
+     C.HGMSPROVISIONINGSTATUS,          
+     C.MCAFEEORDER,          
+     PRODUCT.ISDELETEALLOWED,          
+     PRODUCT.ISTRANSFERALLOWED,          
+     PRODUCT.ISRENAMEALLOWED,          
+     PRODUCT.ISSECUREUPGRADE,          
+     C.S1SVCSTATUS,          
+     C.SENTINELONEEXPIRYDATE,C.PRODUCTTYPE,C.EPAID ,C.SERVICELINE ,C.ISBILLABLE,PRODUCT.ROLETYPE ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED,       
+  PRODUCT.ORGNAME, PRODUCT.ISADDKEYSETAPPLICABLE, PRODUCT.MSSPMONTHLYOPTION, C.ISNETWORKPRODUCT        
+ , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT  ,PRODUCTCHOICEID, C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY      
+                      FROM CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+       inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber           
+                    ORDER BY  PRODUCT.PRODUCTLINE ASC                                   
+                    RETURN                  
+                END               
+            ELSE             
+                BEGIN       
+ --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)      
+                    SELECT DISTINCT            
+      C.PRODUCTID ,            
+      C.SERIALNUMBER ,            
+      C.[NAME] ,            
+      C.CUSTOMERPRODUCTID ,            
+C.STATUS ,            
+      C.REGISTRATIONCODE ,            
+      C.FIRMWAREVERSION ,            
+       PRODUCT.PRODUCTLINE ,            
+      C.PRODUCTFAMILY ,            
+      C.ACTIVEPROMOTION ,            
+      C.PROMOTIONID ,            
+    C.NFR ,            
+      PRODUCT. OWNEROFTHEPRODUCT ,            
+      PRODUCT. PRODUCTOWNER ,            
+      C.ISSUENAME ,            
+      C.RESOLUTIONNAME ,            
+      C.PRODUCTNAME ,            
+      C.PRODUCTGROUPID ,            
+      C.PRODUCTGROUPNAME ,            
+      C.DISPLAYKEYSET ,            
+      C.ASSOCIATIONTYPE ,            
+      C.GROUPHEADERTEXT ,            
+      C.ISEPRS ,            
+      C.CREATEDDATE AS REGISTRATIONDATE,      
+   --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,       
+     C.LASTPINGDATE AS LASTPINGDATE,  
+      C.HGMSPROVISIONINGSTATUS,          
+      C.SENTINELONEEXPIRYDATE,C.PRODUCTTYPE,C.EPAID ,C.SERVICELINE ,C.ISBILLABLE,PRODUCT.ROLETYPE ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED,       
+   PRODUCT.ORGNAME, PRODUCT.ISADDKEYSETAPPLICABLE, PRODUCT.MSSPMONTHLYOPTION ,C.ISNETWORKPRODUCT      
+   , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT      ,PRODUCTCHOICEID, C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY   
+                     FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+       inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber           
+          ORDER BY  PRODUCT.PRODUCTLINE ASC            
+     FOR     XML AUTO ,            
+                         ELEMENTS                        
+     RETURN                
+                END            
+        END                
+            
+    IF @ORDERNAME = 'REGISTEREDDATE'            
+        AND @ORDERTYPE = '0'             
+        BEGIN          
+          
+   IF ISNULL(@ISMSSPUSER, '') <> ''  AND EXISTS (SELECT ORGANIZATIONID FROM ORGANIZATION WITH (NOLOCK)      
+  WHERE ORGANIZATIONID = @ORGID AND MASTERMSSP = 1)      
+ BEGIN -- Master MSSP user, show all products from mssp orgs which are marked as MSSPMONHTLY = YES      
+      
+  CREATE TABLE #tMSSPIDS         
+  (        
+  MSSPID INT,        
+  MSSPNAME NVARCHAR(50),        
+  MASTERMSSP BIT DEFAULT(0)        
+  )          
+        
+  CREATE TABLE #MSSPTENANTS        
+  (ID INT IDENTITY        
+  ,TENANTNAME VARCHAR(255)        
+  ,TENANTID INT        
+  ,MSSPNAME VARCHAR(50)        
+  ,MSSPID INT        
+  )        
+          
+  CREATE TABLE #MSSPPRODUCTSERVICES        
+  (          
+  ID BIGINT IDENTITY(1,1)          
+  ,TENANTID INT          
+  ,SERIALNUMBER VARCHAR(50)       
+  ,PRODUCTID INT           
+  )        
+        
+  CREATE TABLE #UNLISTEDPRODUCTS        
+  (TENANTID INT        
+  ,PRODUCTID INT        
+  ,SERIALNUMBER VARCHAR(50)        
+  )        
+      
+   INSERT INTO #tMSSPIDS        
+   SELECT MM.MASTERMSSPID,MM.MSSPNAME, MM.MSSPORGANIZATIONID FROM MASTERMSSP MM WITH (NOLOCK)        
+      WHERE  MM.MASTERORGANIZATIONID = @ORGID AND ISNULL(MM.MSSPORGANIZATIONID,0) <> 0;       
+      
+    INSERT INTO #MSSPTENANTS(TENANTID, TENANTNAME, MSSPID, MSSPNAME)            
+   SELECT P.PRODUCTGROUPID, P.PRODUCTGROUPNAME, M.MSSPID, M.MSSPNAME             
+   FROM PRODUCTGROUP P WITH (NOLOCK), #tMSSPIDS M WITH ( NOLOCK ), DBO.FNMSSPTENANTSLIST (@USERNAME)MP      
+   WHERE P.MASTERMSSPID = M.MSSPID AND MP.PRODUCTGROUPID = P.PRODUCTGROUPID          
+       
+   INSERT INTO #MSSPPRODUCTSERVICES ( TENANTID, SERIALNUMBER, PRODUCTID)        
+   SELECT PD.PRODUCTGROUPID,  PD.SERIALNUMBER, M.PRODUCTID       
+   FROM #MSSPTENANTS MT WITH (NOLOCK), PRODUCTGROUPDETAIL PD WITH (NOLOCK),       
+   MSSPPRODUCTSERVICESSUMMARY M WITH (NOLOCK),       
+   CUSTOMERPRODUCTS CP WITH (NOLOCK) WHERE MT.TENANTID = PD.PRODUCTGROUPID AND      
+   PD.SERIALNUMBER = M.SERIALNUMBER AND PD.SERIALNUMBER = CP.SERIALNUMBER AND       
+   CP.MSSPMONTHLY = 'YES' AND M.STATUS = 'ACTIVE'       
+   GROUP BY PD.PRODUCTGROUPID, PD.SERIALNUMBER, M.PRODUCTID;      
+       
+         
+   INSERT INTO #UNLISTEDPRODUCTS         
+   SELECT PD.PRODUCTGROUPID, CP.PRODUCTID, PD.SERIALNUMBER         
+   FROM #MSSPTENANTS MT, PRODUCTGROUPDETAIL PD WITH (NOLOCK), CUSTOMERPRODUCTS CP WITH (NOLOCK) WHERE       
+   MT.TENANTID = PD.PRODUCTGROUPID AND PD.SERIALNUMBER = CP.SERIALNUMBER AND CP.MSSPMONTHLY = 'YES'       
+   AND PD.SERIALNUMBER NOT IN (SELECT SERIALNUMBER  FROM #MSSPPRODUCTSERVICES (NOLOCK))      
+   --EXCEPT        
+   --SELECT TENANTID, PRODUCTID, SERIALNUMBER  FROM #MSSPPRODUCTSERVICES      
+       
+    --SELECT * from #UNLISTEDPRODUCTS      
+        
+   INSERT INTO #MSSPPRODUCTSERVICES ( TENANTID, SERIALNUMBER, PRODUCTID)        
+   SELECT TENANTID, SERIALNUMBER, MMPS.PRODUCTID      
+   FROM #UNLISTEDPRODUCTS U WITH (NOLOCK), MASTERMSSPPRODUCTSERVICES MMPS WITH (NOLOCK)       
+   WHERE U.PRODUCTID = MMPS.PRODUCTID          
+   GROUP BY TENANTID, SERIALNUMBER, MMPS.PRODUCTID;      
+      
+     --SELECT * from #MSSPPRODUCTSERVICES      
+      
+     INSERT  INTO #TEMPLISTTABLE            
+       ( PRODUCTID ,            
+         SERIALNUMBER ,                                 
+         PRODUCTFAMILY,          
+          PRODUCTLINE,          
+          ACTIVEPROMOTION           
+                
+       )                                 
+    SELECT CPS.PRODUCTID, CPS.SERIALNUMBER, PRODUCTFAMILY,      
+    PRODUCTLINE, ACTIVEPROMOTION from #MSSPPRODUCTSERVICES M WITH (NOLOCK),      
+    CUSTOMERPRODUCTSSUMMARY CPS WITH (NOLOCK)      
+    WHERE M.SERIALNUMBER = CPS.SERIALNUMBER      
+    AND CPS.SERIALNUMBER NOT IN (SELECT SERIALNUMBER FROM #TEMPLISTTABLE)        
+      
+    UPDATE #TEMPLISTTABLE              
+ SET MSSPMONTHLYOPTION = CASE WHEN #TEMPLISTTABLE.PRODUCTID IN (SELECT MS.PRODUCTID      
+     FROM MASTERMSSPPRODUCTSERVICES MS WITH (NOLOCK), CUSTOMERPRODUCTS CP WITH (NOLOCK) WHERE      
+      CP.SERIALNUMBER = #TEMPLISTTABLE.SERIALNUMBER AND MS.STATUS='ACTIVE' AND CP.MSSPMONTHLY = 'YES')      
+  THEN 'DISABLE' -- MSSP Monthly is enabled, hence show disable option      
+      
+  WHEN #TEMPLISTTABLE.PRODUCTID IN (SELECT MS.PRODUCTID      
+     FROM MASTERMSSPPRODUCTSERVICES MS WITH (NOLOCK), CUSTOMERPRODUCTS CP WITH (NOLOCK) WHERE      
+     CP.SERIALNUMBER = #TEMPLISTTABLE.SERIALNUMBER AND MS.STATUS='ACTIVE' AND ISNULL(CP.MSSPMONTHLY,'NO') = 'NO')      
+  THEN 'ENABLE' END -- MSSP Monthly is disabled, hence show enable option      
+      
+  IF(@ROLETYPELOGIC='YES')        
+  BEGIN         
+        
+        
+UPDATE #TEMPLISTTABLE        
+    SET ROLETYPE =        
+  CASE        
+  (SELECT TOP 1 ISSUPERADMIN FROM TENANTGROUPPERMISSIONSUMMARY WITH (NOLOCK) WHERE USERNAME=@USERNAME AND PRODUCTGROUPID=P.PRODUCTGROUPID        
+  AND PARTYID IN (SELECT PARTYID FROM PARTY(NOLOCK) WHERE CONTACTID = @CONTACTID)) WHEN 'YES' THEN 'SUPERADMIN'        
+  ELSE         
+  ISNULL((SELECT TOP 1 ACCESSTYPEPRODMGMTROLETYPE         
+  FROM TENANTGROUPPERMISSIONSUMMARY WITH (NOLOCK) WHERE USERNAME=@USERNAME AND PRODUCTGROUPID=P.PRODUCTGROUPID AND PARTYID IN (SELECT PARTYID FROM PARTY(NOLOCK) WHERE CONTACTID = @CONTACTID))         
+  ,dbo.FNGETTENANTGROUPPERMISSION(@USERNAME,P.PRODUCTGROUPID,@APPLICATIONFUNCTIONALITY,'MSSPUSER', DEFAULT))        
+  END        
+  FROM #TEMPLISTTABLE P  WITH (NOLOCK) WHERE MSSPMONTHLYOPTION='DISABLE'      
+        
+END         
+IF(@ROLETYPELOGIC='NO') OR          
+ EXISTS(SELECT T.PRODUCTGROUPID FROM #TEMPLISTTABLE T   WITH (NOLOCK)        
+   INNER JOIN  TENANTACTIVITYSTAGING CP WITH (NOLOCK)          
+   ON T.PRODUCTGROUPID=CP.PRODUCTGROUPID        
+   AND PROCESSED='NO')         
+BEGIN         
+ UPDATE #TEMPLISTTABLE          
+   SET ROLETYPE = DBO.FNGETTENANTGROUPPERMISSION(@USERNAME,T.PRODUCTGROUPID,'ACCESSTYPEPRODMGMT','MSSPUSER', DEFAULT)          
+   FROM #TEMPLISTTABLE T        
+END        
+      
+IF EXISTS (SELECT APPLICATIONPARTYROLEID FROM APPLICATIONPARTYROLE NOLOCK WHERE PARTYID=(SELECT TOP 1 PARTYID FROM VCUSTOMER(NOLOCK) WHERE USERNAME=@USERNAME) AND           
+  APPLICATIONROLEID IN(SELECT APPLICATIONROLEID FROM APPLICATIONROLE NOLOCK WHERE ROLENAME='WORKSPACEBETA' AND APPLICATIONNAME='MSW')) OR          
+  EXISTS(SELECT * FROM APPLICATIONCONFIGVALUE NOLOCK WHERE APPLICATIONCONFIGNAME='ISWORKSPACEENABLED' AND APPLICATIONCONFIGVALUE='FORCED')           
+  BEGIN          
+   UPDATE #TEMPLISTTABLE            
+   SET ISTRANSFERALLOWED =CASE WHEN PRODUCTID IN (  400  ) THEN 'NO' WHEN ACTIVEPROMOTION =1 AND @ROLLUP = 0 THEN 'NO'           
+   WHEN  PRODUCTLINE='STORAGE MODULE' OR PRODUCTLINE='SATA MODULE' OR PRODUCTLINE='M2 STORAGE MODULE' THEN 'NO' WHEN S1SVCSTATUS = 'PENDING' THEN 'NO' ELSE 'YES' END          
+          
+    UPDATE #TEMPLISTTABLE           
+  SET ISTRANSFERALLOWED = CASE WHEN UPPER(ROLETYPE) IN ('READONLY','OPERATOR') THEN 'NO' ELSE ISTRANSFERALLOWED END        
+   FROM  #TEMPLISTTABLE TMP           
+  END          
+  ELSE          
+  BEGIN          
+  UPDATE #TEMPLISTTABLE            
+   SET ISTRANSFERALLOWED =CASE WHEN OWNEROFTHEPRODUCT!=1 THEN 'NO' WHEN PRODUCTID IN ( 401 ) THEN 'NO' WHEN ACTIVEPROMOTION =1 AND @ROLLUP = 0 THEN 'NO'            
+   WHEN  PRODUCTLINE='STORAGE MODULE' OR PRODUCTLINE='SATA MODULE' OR PRODUCTLINE='M2 STORAGE MODULE' THEN 'NO' WHEN S1SVCSTATUS = 'PENDING' THEN 'NO' ELSE 'YES' END           
+  END        
+      
+ --UPDATE #TEMPLISTTABLE              
+ --SET MSSPMONTHLYOPTION = CASE WHEN ISNULL(PG.MASTERMSSPID,0)=0 THEN ''       
+ --WHEN ISNULL(PG.MASTERMSSPID,0)>0 AND PG.ISMAPPEDMSSPID=1 THEN '' ELSE MSSPMONTHLYOPTION END      
+ --FROM #TEMPLISTTABLE T,  DBO.FNNONMSSPTENANTSLIST(@USERNAME) PG       
+ --WHERE T.PRODUCTGROUPID=PG.PRODUCTGROUPID      
+      
+   DROP TABLE #MSSPTENANTS      
+   DROP TABLE #tMSSPIDS      
+   DROP TABLE #UNLISTEDPRODUCTS      
+   DROP TABLE #MSSPPRODUCTSERVICES      
+                
+ END      
+      
+ UPDATE  #TEMPLISTTABLE            
+    SET     OWNEROFTHEPRODUCT = 1            
+    WHERE   SERIALNUMBER IN ( SELECT SERIALNUMBER            
+                              FROM      CUSTOMERPRODUCTSSUMMARY WITH ( NOLOCK )            
+                              WHERE     USERNAME = @USERNAME )         
+      
+      
+IF @ORGBASEDASSETOWNSERSHIPENABLED = 'YES' AND @ISORGBASEDACCOUNT = 'YES'      
+BEGIN      
+      
+ UPDATE  #TEMPLISTTABLE            
+    SET     OWNEROFTHEPRODUCT = 1       
+ WHERE OWNEROFTHEPRODUCT = 0  AND SERIALNUMBER IN (SELECT SERIALNUMBER            
+                              FROM      CUSTOMERPRODUCTS WITH ( NOLOCK )            
+                              WHERE  USERNAME IN (SELECT USERNAME FROM vCUSTOMER WHERE ORGANIZATIONID = @ORGID))      
+                
+      
+END      
+                                          
+    UPDATE  #TEMPLISTTABLE            
+    SET     PRODUCTOWNER = @USERNAME                    
+                          
+    UPDATE  #TEMPLISTTABLE              
+    SET     PRODUCTOWNER = CP.USERNAME ,      
+ PRODUCTGROUPID =   CP.PRODUCTGROUPID ,            
+    PRODUCTGROUPNAME =  CP.PRODUCTGROUPNAME       
+    FROM    #TEMPLISTTABLE T ,              
+            CUSTOMERPRODUCTSSUMMARY CP WITH ( NOLOCK )              
+    WHERE   T.SERIALNUMBER = CP.SERIALNUMBER              
+            AND T.OWNEROFTHEPRODUCT = 0       
+                     
+                          
+    IF ( @ORDERNAME IS NULL )            
+        OR ( @ORDERNAME = '' )             
+        SELECT  @ORDERNAME = 'NAME'                               
+    IF ( @ORDERTYPE IS NULL )            
+        OR ( @ORDERTYPE = '' )             
+        SELECT  @ORDERTYPE = 0                    
+          
+                  
+    IF @APPNAME IN ( 'MSW', 'CHANNEL' )             
+    BEGIN            
+  -- Dont show Cloud tenant 2.0(NFR = 10) and CSCMA 1.9(NFR = 11) tenant serial# My products only in MSW          
+  DELETE  #TEMPLISTTABLE FROM #TEMPLISTTABLE T            
+  WHERE   T.PRODUCTID = 400            
+  AND T.SERIALNUMBER in (SELECT SERIALNUMBER FROM PRODUCTSERIALNUMBERS PSN (nolock) WHERE PSN.SERIALNUMBER = T.SERIALNUMBER AND PSN.PRODUCTID = 400 AND NFR IN (10, 11))            
+            
+          
+  --If AppName = 'MSW', then only return those srl nos where OEMCode = @OEMCODE              
+  DELETE  FROM #TEMPLISTTABLE            
+    WHERE   PRODUCTID NOT IN ( SELECT   PRODUCTID            
+             FROM     PRODUCTS WITH ( NOLOCK )            
+  WHERE    OEMCODE = @OEMCODE )              
+    END                  
+                  
+          
+                             
+                    
+    IF ISNULL(@OEMCODE, '') = 'HGMS'             
+        BEGIN            
+            UPDATE  #TEMPLISTTABLE            
+            SET     PRODUCTFAMILY = NULL            
+            
+            UPDATE  #TEMPLISTTABLE            
+            SET     PRODUCTFAMILY = 'Click here to Login'            
+            FROM    #TEMPLISTTABLE T ,            
+                    HOSTEDGMSDETAILS H ( NOLOCK )            
+            WHERE   T.SERIALNUMBER = H.SERIALNUMBER         
+AND H.STATUS = 'SUCCESS'            
+        END           
+           
+IF @ORGBASEDASSETOWNSERSHIPENABLED = 'YES' AND @ISORGBASEDACCOUNT = 'YES'      
+BEGIN      
+-- Restrict Product Operations such as Rename, Transfer and Delete when user has gained Access through Affiliation Tenant scope with Read-only Access (MSW-25825)      
+      
+ UPDATE  #TEMPLISTTABLE            
+    SET     ISRENAMEALLOWED = 'NO',      
+ ISDELETEALLOWED = 'NO',      
+ ISTRANSFERALLOWED = 'NO'      
+ WHERE OWNEROFTHEPRODUCT = 0  AND PRODUCTGROUPID IN       
+  (SELECT PRODUCTGROUPID FROM PARTYPRODUCTGROUP WITH (NOLOCK)      
+  WHERE ISNULL(COMANAGEORGTRACKERID,0) > 0 AND PERMISSIONTYPEID IN (SELECT PERMISSIONTYPEID FROM PERMISSIONTYPE WITH (NOLOCK) WHERE      
+  INTERNALDESCRIPTION = 'READONLY'))      
+                
+END      
+            
+ if @SOURCE ='RESTAPI' AND @ISLARGEUSER = 'NO'          
+  begin          
+   DECLARE @TPARTYPRODUCTGRPDETAIL TABLE  
+   (  
+   CONTACTID INT,  
+   SERIALNUMBER VARCHAR(30),  
+   PARTYGROUPID INT,  
+   PARTYGROUPNAME NVARCHAR(255)  
+   )      
+  INSERT INTO @TPARTYPRODUCTGRPDETAIL SELECT CONTACTID,SERIALNUMBER,PARTYGROUPID,PARTYGROUPNAME FROM VWPARTYPRODUCTGROUPDETAIL WITH (NOLOCK) WHERE CONTACTID=@CONTACTID     
+  UPDATE  #TEMPLISTTABLE            
+    SET     PARTYGROUPIDS = stuff((select  distinct ',' + convert(varchar,vw.PARTYGROUPID) from @TPARTYPRODUCTGRPDETAIL vw          
+   where vw.SERIALNUMBER = TMP.SERIALNUMBER for xml path('')),1,1,'') + ','           
+    FROM    #TEMPLISTTABLE TMP            
+            
+          
+    UPDATE  #TEMPLISTTABLE            
+    SET     PARTYGROUPNAMES = stuff((select distinct ',' + vw.PARTYGROUPNAME from @TPARTYPRODUCTGRPDETAIL vw        
+    where vw.SERIALNUMBER = TMP.SERIALNUMBER for xml path('')),1,1,'') + ','             
+    FROM    #TEMPLISTTABLE TMP            
+           
+ --   UPDATE  #TEMPLISTTABLE            
+ --   SET     PRODUCTGROUPIDS = stuff((select  distinct ',' + convert(varchar,vw.PRODUCTGROUPID) from VWPARTYPRODUCTGROUPDETAIL vw    (NOLOCK)          
+ --where vw.SERIALNUMBER = TMP.SERIALNUMBER and VW.CONTACTID = @CONTACTID  for xml path('')),1,1,'') + ','           
+ --   FROM    #TEMPLISTTABLE TMP            
+            
+        
+  end        
+          
+    --IF @SOURCE ='RESTAPI' AND @ISLARGEUSER = 'YES'        
+    --BEGIN        
+        UPDATE #TEMPLISTTABLE SET PRODUCTGROUPNAMES = ISNULL(CP.PRODUCTGROUPNAME,T.PRODUCTGROUPNAME)        
+  ,PRODUCTGROUPIDS= ISNULL(CP.PRODUCTGROUPID, T.PRODUCTGROUPID)        
+  FROM #TEMPLISTTABLE T WITH (NOLOCK)           
+  inner join CUSTOMERPRODUCTSSUMMARY cp with (nolock)        
+  on cp.serialnumber=t.serialnumber      
+        
+  --select * from #TEMPLISTTABLE      
+               
+ UPDATE  #TEMPLISTTABLE            
+  SET  ISLICENSEEXPIRED = 1 , LICENSEEXPIRYCNT=1            
+  WHERE   LICENSEEXPIRYCNT > 0          
+          
+  UPDATE  #TEMPLISTTABLE            
+  SET  ISSOONEXPIRING = 1 , SOONEXPIRINGCNT = 1            
+  WHERE   SOONEXPIRINGCNT > 0          
+          
+  UPDATE  #TEMPLISTTABLE            
+  SET   ACTIVELICENSECNT = 1            
+  WHERE   ACTIVELICENSECNT > 0              
+          
+            IF ( @OutformatXML = 0 )             
+                BEGIN             
+              
+              
+              --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)  
+               
+                         IF @PRODUCTLIST = 'LIMIT'             
+                         BEGIN     
+                             -- Apply pagination logic for LIMITED results
+                             DECLARE @LimitStartRow INT, @LimitEndRow INT, @LimitTotalCount INT
+                             SET @LimitStartRow = (@PAGENO - 1) * @PAGESIZE + 1
+                             SET @LimitEndRow = @PAGENO * @PAGESIZE
+
+                             -- Get total count first
+                             SELECT @LimitTotalCount = COUNT(*) 
+                             FROM CUSTOMERPRODUCTSSUMMARY C with (nolock)
+                             INNER JOIN #TEMPLISTTABLE AS PRODUCT ON C.serialnumber = PRODUCT.serialnumber
+
+                             -- Apply min/max count filters if specified
+                             IF (@MINCOUNT IS NOT NULL AND @LimitTotalCount < @MINCOUNT) OR 
+                                (@MAXCOUNT IS NOT NULL AND @LimitTotalCount > @MAXCOUNT)
+                             BEGIN
+                                 SELECT 'No records match the count criteria' AS Message, 
+                                        @LimitTotalCount AS TotalCount, 
+                                        @MINCOUNT AS MinCount, 
+                                        @MAXCOUNT AS MaxCount
+                                 RETURN
+                             END
+
+                             ;WITH LimitedPaginatedResults AS (
+                                 SELECT DISTINCT            
+                                C.PRODUCTID ,            
+                                C.SERIALNUMBER ,            
+                                C.[NAME] ,            
+                                C.CUSTOMERPRODUCTID ,            
+                                C.STATUS ,            
+                                C.REGISTRATIONCODE ,            
+                                C.FIRMWAREVERSION ,            
+                                 PRODUCT.PRODUCTLINE ,            
+                                C.PRODUCTFAMILY ,            
+                                C.ACTIVEPROMOTION ,            
+                                C.PROMOTIONID ,            
+                                C.NFR ,            
+                                PRODUCT.OWNEROFTHEPRODUCT ,            
+                                PRODUCT.PRODUCTOWNER ,            
+                                C.ISSUENAME ,            
+                                C.RESOLUTIONNAME ,            
+                                C.PRODUCTNAME ,            
+                                C.PRODUCTGROUPID ,            
+                                C.PRODUCTGROUPNAME ,            
+                                PRODUCT.PARTYGROUPNAMES,          
+                                C.RELEASESTATUS,          
+                                C.DISPLAYKEYSET ,            
+                                C.ASSOCIATIONTYPE ,            
+                                C.GROUPHEADERTEXT ,            
+                                C.ASSOCIATIONTYPEID ,            
+                                C.ISEPRS ,            
+                                C.CREATEDDATE AS REGISTRATIONDATE ,      
+                             --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,    
+                          C.LASTPINGDATE AS LASTPINGDATE,  
+                                C.REMOVEASSOCIATION ,            
+                          C.DELETEDM ,            
+                                C.REGCODE ,            
+                                C.HGMSPROVISIONINGSTATUS,          
+                              C.MCAFEEORDER,          
+                                C.DEVICESTATUS,          
+                                PRODUCT.ISDELETEALLOWED,          
+                                PRODUCT.ISTRANSFERALLOWED,          
+                                PRODUCT.ISRENAMEALLOWED,          
+                                PRODUCT.ISSECUREUPGRADE,          
+                                C.PTAB,          
+                                C.LTAB,          
+                                C.CBKUPTAB,          
+                                C.FWTAB,          
+                                C.S1SVCSTATUS,          
+                                C.SENTINELONEEXPIRYDATE,          
+                                C.PRODUCTTYPE,          
+                                PRODUCT.LICENSEEXPIRYCNT,          
+                                PRODUCT.SOONEXPIRINGCNT,          
+                                PRODUCT.ACTIVELICENSECNT,          
+                                PRODUCT.ISLICENSEEXPIRED,          
+                           PRODUCT.ISSOONEXPIRING,          
+                                PRODUCT.MINLICENSEEXPIRYDATE,          
+                                PRODUCT.SOONEXPIRYDATE,          
+                                PRODUCT.CCNODECOUNT,          
+                                PRODUCT.HESNODECOUNT,          
+                                PRODUCT.CASNODECOUNT,          
+                              PRODUCT.GMSNODECOUNT,
+                              C.EPAID ,
+                              C.SERVICELINE,
+                              C.ISBILLABLE,PRODUCT.ROLETYPE ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED,       
+                                PRODUCT.ORGNAME, PRODUCT.ISADDKEYSETAPPLICABLE, PRODUCT.MSSPMONTHLYOPTION, C.ISNETWORKPRODUCT      
+                                , PRODUCT.EMAILADDRESS,      
+                                PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT ,PRODUCTCHOICEID, C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY   
+                                             FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+                                inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber  
+                             Left join CUSTOMERPRODUCTS CU WITH (NOLOCK) ON CU.SERIALNUMBER = C.serialnumber  
+                             )
+                             SELECT * FROM LimitedPaginatedResults 
+                             WHERE RowNum BETWEEN @LimitStartRow AND @LimitEndRow                                                            
+                             RETURN               
+                        END             
+                    ELSE             
+                        BEGIN      
+            
+       --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)  
+                 
+          
+                                               -- Apply pagination logic
+                        DECLARE @StartRow INT, @EndRow INT
+                        SET @StartRow = (@PAGENO - 1) * @PAGESIZE + 1
+                        SET @EndRow = @PAGENO * @PAGESIZE
+
+                        -- Get total count first
+                        DECLARE @TotalCount INT
+                        SELECT @TotalCount = COUNT(*) 
+                        FROM CUSTOMERPRODUCTSSUMMARY C with (nolock)
+                        INNER JOIN #TEMPLISTTABLE AS t ON C.serialnumber = t.serialnumber
+
+                        -- Apply min/max count filters if specified
+                        IF (@MINCOUNT IS NOT NULL AND @TotalCount < @MINCOUNT) OR 
+                           (@MAXCOUNT IS NOT NULL AND @TotalCount > @MAXCOUNT)
+                        BEGIN
+                            -- Return empty result set if count doesn't meet criteria
+                            SELECT 'No records match the count criteria' AS Message, 
+                                   @TotalCount AS TotalCount, 
+                                   @MINCOUNT AS MinCount, 
+                                   @MAXCOUNT AS MaxCount
+                            RETURN
+                        END
+
+                        ;WITH PaginatedResults AS (
+                            SELECT DISTINCT              
+                             t.CID,             
+                             C.PRODUCTID ,              
+                             C.SERIALNUMBER ,              
+                             C.[NAME] ,              
+                             C.CUSTOMERPRODUCTID ,              
+                             C.STATUS ,              
+                             C.REGISTRATIONCODE ,              
+                             C.FIRMWAREVERSION ,              
+                              t.PRODUCTLINE ,                
+                             C.PRODUCTFAMILY ,              
+                             C.ACTIVEPROMOTION ,              
+                             C.PROMOTIONID ,              
+                             C.NFR ,              
+                            t.OWNEROFTHEPRODUCT ,              
+                             t.PRODUCTOWNER ,              
+                             C.ISSUENAME ,              
+                             C.RESOLUTIONNAME ,              
+                             C.PRODUCTNAME ,              
+                             C.PRODUCTGROUPID ,          
+                             C.PRODUCTGROUPNAME ,            
+                             t.PARTYGROUPNAMES,            
+                             C.RELEASESTATUS,            
+                             C.DISPLAYKEYSET ,              
+                             C.ASSOCIATIONTYPE ,              
+                             C.GROUPHEADERTEXT ,              
+                             C.ASSOCIATIONTYPEID ,              
+                             C.ISEPRS ,              
+                             C.CREATEDDATE AS REGISTRATIONDATE ,       
+                             --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,  
+                          C.LASTPINGDATE AS LASTPINGDATE,  
+                             C.REMOVEASSOCIATION ,              
+                             C.DELETEDM ,              
+                             C.REGCODE ,              
+                             t.NEEDEDFIRMWAREVERSION ,              
+                             t.FIRMWARESTATUS ,              
+                             t.FIRMWARETEXT ,              
+                             C.SRLNOSTATUS ,              
+                             C.RELEASENOTES ,              
+                             C.HGMSPROVISIONINGSTATUS,            
+                             C.MCAFEEORDER,            
+                             C.DEVICESTATUS,            
+                             t.ISDELETEALLOWED,            
+                             t.ISTRANSFERALLOWED,            
+                             t.ISRENAMEALLOWED,            
+                             t.ISSECUREUPGRADE,            
+                             C.SUPPORTDATE,            
+                             t.PRODUCTGROUPNAMES,            
+                             C.PTAB,            
+                             C.LTAB,            
+                             C.CBKUPTAB,            
+                             C.FWTAB,            
+                             C.S1SVCSTATUS,            
+                             C.SENTINELONEEXPIRYDATE,            
+                             C.PRODUCTTYPE,            
+                             t.LICENSEEXPIRYCNT,            
+                             t.SOONEXPIRINGCNT,            
+                             t.ACTIVELICENSECNT,            
+                             t.ISLICENSEEXPIRED,            
+                             t.ISSOONEXPIRING,            
+                             t.MINLICENSEEXPIRYDATE,            
+                             t.SOONEXPIRYDATE,            
+                             t.CCNODECOUNT,            
+                             t.HESNODECOUNT,            
+                            t.CASNODECOUNT,            
+                             t.GMSNODECOUNT,          
+                             C.EPAID ,          
+                             C.SERVICELINE,          
+                             C.ISBILLABLE ,            
+                            --C.ISDOWNLOADAVAILABLE,       
+                                                     C.UPDATESAVAILABLE 'ISDOWNLOADAVAILABLE',            
+                             C.ISZTSUPPORTED,            
+                             C.SUPPORTEXPIRYDATE,            
+                             C.NONSUPPORTEXPIRYDATE ,            
+                             t.ROLETYPE ,          
+                             t.SASELICENSECOUNT,          
+                             C.ISZEROTOUCHALLOWED,           
+                             t.ORGNAME,      
+                             t.ISADDKEYSETAPPLICABLE,      
+                             t.MSSPMONTHLYOPTION,      
+                             C.ISNETWORKPRODUCT,       
+                             t.EMAILADDRESS,      
+                             t.DESCRIPTION , 
+                             t.ISSHAREDTENANT,
+                             PRODUCTCHOICEID,
+                             C.VULTOOLTIPTEXT, 
+                             C.VULHREFTEXT,
+                             C.VULSEVERITY,
+                             t.MANAGEMENTOPTION,
+                             t.ORGID,
+                             ROW_NUMBER() OVER (ORDER BY C.CREATEDDATE DESC) AS RowNum,
+                             @TotalCount AS TotalCount
+                           FROM  CUSTOMERPRODUCTSSUMMARY C with (nolock)  
+                           INNER JOIN #TEMPLISTTABLE AS t ON C.serialnumber = t.serialnumber          
+                        )
+                        SELECT * FROM PaginatedResults 
+                        WHERE RowNum BETWEEN @StartRow AND @EndRow          
+               
+   INSERT INTO @PRODGROUPTABLE (PRODUCTGROUPID, PRODUCTGROUPNAME)      
+       SELECT DISTINCT PRODUCTGROUPID, PRODUCTGROUPNAME FROM #TEMPLISTTABLE   AS t WHERE PRODUCTGROUPID IS NOT NULL        
+UPDATE @PRODGROUPTABLE      
+   SET TOTALPRODUCTSCNT = (SELECT COUNT(t.PRODUCTGROUPID)      
+                   FROM #TEMPLISTTABLE t      
+                  WHERE t.PRODUCTGROUPID = P.PRODUCTGROUPID)      
+  FROM @PRODGROUPTABLE P       
+      
+  UPDATE @PRODGROUPTABLE      
+   SET EXPIREDPRODUCTSCNT = (SELECT COUNT(t.PRODUCTGROUPID)      
+                   FROM #TEMPLISTTABLE t      
+                  WHERE t.PRODUCTGROUPID = P.PRODUCTGROUPID      
+      AND ISLICENSEEXPIRED = 1 AND MINLICENSEEXPIRYDATE IS NOT NULL)      
+  FROM @PRODGROUPTABLE P       
+      
+  UPDATE @PRODGROUPTABLE      
+   SET SOONEXPIRINGPRODDUCTSCNT = (SELECT COUNT(t.PRODUCTGROUPID)      
+                   FROM #TEMPLISTTABLE t      
+                  WHERE t.PRODUCTGROUPID = P.PRODUCTGROUPID      
+      AND  ISSOONEXPIRING = 1 AND SOONEXPIRYDATE IS NOT NULL)      
+  FROM @PRODGROUPTABLE P       
+      
+  UPDATE @PRODGROUPTABLE      
+   SET ACTIVEPRODUCTSCNT = ISNULL((SELECT SUM(ACTIVELICENSECNT)       
+                   FROM #TEMPLISTTABLE t      
+                  WHERE t.PRODUCTGROUPID = P.PRODUCTGROUPID),0)      
+  FROM @PRODGROUPTABLE P       
+      
+   UPDATE @PRODGROUPTABLE      
+    SET FIREWALLCNT =  (SELECT COUNT(t.PRODUCTGROUPID)      
+                   FROM #TEMPLISTTABLE t,  CUSTOMERPRODUCTSSUMMARY C with (nolock)         
+                  WHERE t.PRODUCTGROUPID = P.PRODUCTGROUPID      
+      AND C.serialnumber=t.serialnumber              
+      AND  C.PRODUCTTYPE = 'Firewall')      
+   FROM @PRODGROUPTABLE P      
+      
+  UPDATE @PRODGROUPTABLE      
+    SET ACCESSPOINTCNT =  (SELECT COUNT(t.PRODUCTGROUPID)      
+                  FROM #TEMPLISTTABLE t,  CUSTOMERPRODUCTSSUMMARY C with (nolock)         
+                  WHERE t.PRODUCTGROUPID = P.PRODUCTGROUPID      
+      AND C.serialnumber=t.serialnumber              
+      AND  C.PRODUCTTYPE = 'Access Points')      
+   FROM @PRODGROUPTABLE P       
+      
+       
+  IF ISNULL(@APPLICATIONNAME,'') <> 'MSWANDROID' AND @ISPRODUCTGROUPTABLENEEDED = 'YES'      
+ BEGIN      
+  SELECT * FROM @PRODGROUPTABLE      
+ END      
+                  RETURN                    
+                        END                 
+              END                
+            ELSE             
+                BEGIN      
+ --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)      
+                   IF @PRODUCTLIST = 'LIMIT'             
+                        BEGIN              
+                            SELECT DISTINCT TOP 10            
+       C.PRODUCTID ,            
+       C.SERIALNUMBER ,            
+       C.[NAME] ,            
+       C.CUSTOMERPRODUCTID ,            
+       C.STATUS ,            
+       C.REGISTRATIONCODE ,            
+       C.FIRMWAREVERSION ,            
+        PRODUCT.PRODUCTLINE ,            
+       C.PRODUCTFAMILY ,            
+       C.ACTIVEPROMOTION ,            
+       C.PROMOTIONID ,            
+       C.NFR ,            
+       PRODUCT.OWNEROFTHEPRODUCT ,            
+       PRODUCT.PRODUCTOWNER ,            
+       C.ISSUENAME ,            
+       C.RESOLUTIONNAME ,            
+       C.PRODUCTNAME ,            
+       C.PRODUCTGROUPID ,            
+       C.PRODUCTGROUPNAME ,            
+       C.DISPLAYKEYSET ,            
+       C.ASSOCIATIONTYPE ,            
+       C.GROUPHEADERTEXT ,            
+       C.ISEPRS ,            
+       C.CREATEDDATE AS REGISTRATIONDATE,       
+    --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,   
+ C.LASTPINGDATE AS LASTPINGDATE,  
+       C.HGMSPROVISIONINGSTATUS,          
+       C.DEVICESTATUS,          
+       PRODUCT.ISDELETEALLOWED,          
+       PRODUCT.ISTRANSFERALLOWED,          
+       PRODUCT.ISRENAMEALLOWED,          
+       PRODUCT.ISSECUREUPGRADE,          
+       C.LTAB,          
+     C.CBKUPTAB,          
+       C.FWTAB,          
+       C.SENTINELONEEXPIRYDATE  ,         
+       C.PRODUCTTYPE,          
+       PRODUCT.LICENSEEXPIRYCNT,          
+       PRODUCT.SOONEXPIRINGCNT,          
+       PRODUCT.ACTIVELICENSECNT,     
+       PRODUCT.MINLICENSEEXPIRYDATE,          
+       PRODUCT.SOONEXPIRYDATE,C.EPAID ,C.SERVICELINE,C.ISBILLABLE ,          
+       C.SUPPORTEXPIRYDATE,          
+       C.NONSUPPORTEXPIRYDATE ,          
+       PRODUCT.ROLETYPE  ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED, PRODUCT.ORGNAME, PRODUCT.ISADDKEYSETAPPLICABLE,      
+    PRODUCT.MSSPMONTHLYOPTION,      
+    C.ISNETWORKPRODUCT , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT ,PRODUCTCHOICEID ,C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY,PRODUCT.MANAGEMENTOPTION,PRODUCT.ORGID       
+      FROM  CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+        ,  #TEMPLISTTABLE   AS PRODUCT   where   C.serialnumber=PRODUCT.serialnumber          
+                            ORDER BY C.CREATEDDATE DESC            
+                            FOR     XML AUTO ,            
+           ELEMENTS                                     
+    RETURN               
+                        END            
+ ELSE             
+                        BEGIN       
+ --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)        
+                            SELECT DISTINCT            
+     C.PRODUCTID ,            
+        C.SERIALNUMBER ,            
+        C.[NAME] ,            
+        C.CUSTOMERPRODUCTID ,            
+        C.STATUS ,            
+        C.REGISTRATIONCODE ,            
+        C.FIRMWAREVERSION ,            
+         PRODUCT.PRODUCTLINE ,            
+        C.PRODUCTFAMILY ,            
+        C.ACTIVEPROMOTION ,            
+        C.PROMOTIONID ,            
+        C.NFR ,            
+        PRODUCT.OWNEROFTHEPRODUCT ,            
+        PRODUCT.PRODUCTOWNER ,            
+        C.ISSUENAME ,            
+        C.RESOLUTIONNAME ,            
+        C.PRODUCTNAME ,            
+        C.PRODUCTGROUPID ,            
+        C.PRODUCTGROUPNAME ,            
+        C.DISPLAYKEYSET ,            
+        C.ASSOCIATIONTYPE ,            
+        C.GROUPHEADERTEXT ,            
+        C.ISEPRS ,            
+        C.CREATEDDATE AS REGISTRATIONDATE,      
+  --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,         
+  C.LASTPINGDATE AS LASTPINGDATE,  
+        C.HGMSPROVISIONINGSTATUS,          
+        C.DEVICESTATUS,          
+        PRODUCT.ISDELETEALLOWED,          
+        PRODUCT.ISTRANSFERALLOWED,          
+        PRODUCT.ISRENAMEALLOWED,          
+        PRODUCT.ISSECUREUPGRADE,          
+        C.SUPPORTDATE,          
+        c.SENTINELONEEXPIRYDATE,          
+        c.PRODUCTTYPE,          
+        c.EPAID ,          
+        c.SERVICELINE,          
+        c.ISBILLABLE,          
+        PRODUCT.ROLETYPE ,          
+        c.SASELICENSECOUNT,          
+        c.ISZEROTOUCHALLOWED,          
+        PRODUCT.ORGNAME,       
+   PRODUCT.ISADDKEYSETAPPLICABLE,          
+   PRODUCT.MSSPMONTHLYOPTION,      
+   C.ISNETWORKPRODUCT  , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT ,PRODUCTCHOICEID,  
+  C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY  
+                    FROM  CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+        ,  #TEMPLISTTABLE   AS PRODUCT   where   C.serialnumber=PRODUCT.serialnumber             
+              ORDER BY C.CREATEDDATE DESC            
+                  FOR     XML AUTO ,            
+  ELEMENTS                                     
+                    RETURN                  
+                END                                
+        END                
+                                  
+    IF @ORDERNAME = 'NAME'            
+        AND @ORDERTYPE = '1'             
+        BEGIN       
+      
+            IF ( @OutformatXML = 0 )             
+             BEGIN              
+                    IF ( @CallFrom = 'MYGROUPS' )             
+                        BEGIN            
+                                                  
+                            SELECT DISTINCT            
+       C.PRODUCTID ,            
+       C.SERIALNUMBER ,            
+       C.PRIMARYSERIALNUMBER ,            
+       C.ASSOCIATIONNAME ,            
+       C.[NAME] ,            
+       C.CUSTOMERPRODUCTID ,            
+       C.STATUS ,            
+       REPLACE(ISNULL(C.REGISTRATIONCODE, ''), ' ',            
+       '-') 'REGISTRATIONCODE' ,            
+       C.FIRMWAREVERSION ,            
+        PRODUCT.PRODUCTLINE ,            
+       C.PRODUCTFAMILY ,            
+       C.ACTIVEPROMOTION ,            
+       C. PROMOTIONID ,            
+       C.NFR ,            
+       PRODUCT.OWNEROFTHEPRODUCT ,            
+       PRODUCT. PRODUCTOWNER ,            
+       C.ISSUENAME ,            
+       C.RESOLUTIONNAME ,            
+       C.PRODUCTNAME ,            
+       PGD.PRODUCTGROUPID ,            
+       PG.PRODUCTGROUPNAME ,            
+       C.DISPLAYKEYSET ,            
+       C. ASSOCIATIONTYPE ,          
+       C.GROUPHEADERTEXT ,            
+  C.ASSOCIATIONTYPEID ,            
+       CONVERT(DATETIME,C. REGISTRATIONCODE) 'SUPPORTDATE' ,            
+       C.ISEPRS ,            
+       C.REMOVEASSOCIATION ,            
+       C.DELETEDM ,            
+       C.CREATEDDATE AS REGISTRATIONDATE,      
+    --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,     
+ C.LASTPINGDATE AS LASTPINGDATE,  
+       C.HGMSPROVISIONINGSTATUS,          
+       C.MCAFEEORDER,          
+       C.RELEASESTATUS,          
+       PRODUCT.PARTYGROUPIDS,          
+       C.PARTYGROUPNAME 'PARTYGROUPNAME',          
+       PRODUCT.PARTYGROUPNAMES,          
+       C.DEVICESTATUS,          
+       PRODUCT.PRODUCTGROUPNAMES,          
+       PRODUCT.PRODUCTGROUPIDS,          
+       C.FWTAB ,          
+       C.PTAB ,          
+       C.LTAB ,          
+       C.CBKUPTAB,          
+       C.ASSOCTYPEINTNAME,          
+       PRODUCT. ISDELETEALLOWED,          
+       PRODUCT.ISTRANSFERALLOWED,          
+       PRODUCT.ISRENAMEALLOWED,          
+       PRODUCT.ISSECUREUPGRADE,          
+       C.S1SVCSTATUS,          
+       C.SENTINELONEEXPIRYDATE,C.PRODUCTTYPE,C.EPAID ,C.SERVICELINE ,C.ISBILLABLE,PRODUCT.ROLETYPE ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED,       
+    PRODUCT.ORGNAME  , PRODUCT.ISADDKEYSETAPPLICABLE, PRODUCT.MSSPMONTHLYOPTION, C.ISNETWORKPRODUCT    , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT,PRODUCTCHOICEID,C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY        
+                            FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+       inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber           
+                                    LEFT OUTER JOIN PRODUCTGROUPDETAIL PGD            
+                                    WITH ( NOLOCK ) ON PGD.SERIALNUMBER = PRODUCT.SERIALNUMBER            
+                                    LEFT OUTER JOIN PRODUCTGROUP PG WITH ( NOLOCK ) ON PG.PRODUCTGROUPID = PGD.PRODUCTGROUPID            
+   ORDER BY [NAME] ASC ,            
+                              C.PRIMARYSERIALNUMBER DESC             
+                                   
+            SELECT * FROM @GROUPTABLE                                
+                 RETURN                 
+          END                
+                    ELSE             
+                        BEGIN                
+      
+           --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)  
+      
+      
+                            SELECT DISTINCT            
+       C.PRODUCTID ,            
+       C.SERIALNUMBER ,            
+       C.PRIMARYSERIALNUMBER ,            
+       C.ASSOCIATIONNAME ,            
+       C.[NAME] ,            
+       C.CUSTOMERPRODUCTID ,            
+       C.STATUS ,            
+       REPLACE(ISNULL(C.REGISTRATIONCODE, ''), ' ',            
+        '-') 'REGISTRATIONCODE' ,            
+       C.FIRMWAREVERSION ,            
+        PRODUCT.PRODUCTLINE ,            
+       C.PRODUCTFAMILY ,            
+       C.ACTIVEPROMOTION ,            
+       C.PROMOTIONID ,            
+       C.NFR ,            
+       PRODUCT.OWNEROFTHEPRODUCT ,            
+       PRODUCT.PRODUCTOWNER ,            
+       C.ISSUENAME ,            
+       C.RESOLUTIONNAME ,            
+       C.PRODUCTNAME ,            
+       C.PRODUCTGROUPID ,            
+       C.PRODUCTGROUPNAME ,            
+       C.DISPLAYKEYSET ,            
+       C.ASSOCIATIONTYPE ,            
+       C.GROUPHEADERTEXT ,            
+       C.ASSOCIATIONTYPEID ,            
+       CONVERT(DATETIME, C.REGISTRATIONCODE) 'SUPPORTDATE' ,            
+       C.ISEPRS ,            
+       C.REMOVEASSOCIATION,            
+       C.DELETEDM ,            
+       C.CREATEDDATE AS REGISTRATIONDATE,       
+    --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,   
+   C.LASTPINGDATE AS LASTPINGDATE,  
+       C.HGMSPROVISIONINGSTATUS,          
+       C.MCAFEEORDER,          
+       C.RELEASESTATUS,          
+      PRODUCT.PARTYGROUPIDS,          
+       C.PARTYGROUPNAME 'PARTYGROUPNAME',          
+ PRODUCT.PARTYGROUPNAMES,          
+       C.DEVICESTATUS,          
+       PRODUCT.PRODUCTGROUPNAMES,          
+       PRODUCT.PRODUCTGROUPIDS,          
+       C.FWTAB ,          
+       C.PTAB ,          
+       C.LTAB ,          
+       C.CBKUPTAB,          
+       C.ASSOCTYPEINTNAME,          
+       PRODUCT.ISDELETEALLOWED,          
+       PRODUCT.ISTRANSFERALLOWED,          
+       PRODUCT.ISRENAMEALLOWED,          
+       PRODUCT.ISSECUREUPGRADE ,          
+       C.S1SVCSTATUS,          
+       C.SENTINELONEEXPIRYDATE ,C.PRODUCTTYPE ,C.EPAID ,C.SERVICELINE ,C.ISBILLABLE,PRODUCT.ROLETYPE ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED,       
+    PRODUCT.ORGNAME , PRODUCT.ISADDKEYSETAPPLICABLE , PRODUCT.MSSPMONTHLYOPTION,C.ISNETWORKPRODUCT  , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION  , PRODUCT.ISSHAREDTENANT , PRODUCT.CONNECTORNAME   ,PRODUCTCHOICEID,C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY      
+                           FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+       inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber           
+                            ORDER BY C.[NAME] ASC ,            
+                                    C.PRIMARYSERIALNUMBER DESC          
+                         
+        SELECT * FROM @GROUPTABLE               
+        RETURN            
+             END             
+                END               
+            ELSE             
+                BEGIN         
+         --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)  
+                    SELECT DISTINCT            
+      C.PRODUCTID ,            
+      C.SERIALNUMBER ,            
+      C.[NAME] ,            
+      C.CUSTOMERPRODUCTID ,            
+      C.STATUS ,            
+      C.REGISTRATIONCODE ,            
+      C.FIRMWAREVERSION ,            
+       PRODUCT.PRODUCTLINE ,            
+      C.PRODUCTFAMILY ,            
+      C.ACTIVEPROMOTION ,            
+      C.PROMOTIONID ,            
+      C.NFR ,            
+      PRODUCT.OWNEROFTHEPRODUCT ,            
+      PRODUCT.PRODUCTOWNER ,            
+      C.ISSUENAME ,            
+      C.RESOLUTIONNAME ,            
+      C.PRODUCTNAME ,            
+      C.PRODUCTGROUPID ,           
+      C.PRODUCTGROUPNAME ,            
+      C.DISPLAYKEYSET ,            
+      C.ASSOCIATIONTYPE ,            
+      C.GROUPHEADERTEXT ,            
+      C.ISEPRS ,            
+      C.CREATEDDATE AS REGISTRATIONDATE,      
+  -- CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,   
+  C.LASTPINGDATE AS LASTPINGDATE,  
+      C.HGMSPROVISIONINGSTATUS,                 
+      PRODUCT.ISDELETEALLOWED,     
+      PRODUCT.ISTRANSFERALLOWED,          
+      PRODUCT.ISRENAMEALLOWED,          
+      PRODUCT.ISSECUREUPGRADE,          
+      C.SENTINELONEEXPIRYDATE  ,C.PRODUCTTYPE,C.EPAID ,C.SERVICELINE ,C.ISBILLABLE,PRODUCT.ROLETYPE ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED,       
+   PRODUCT.ORGNAME    , PRODUCT.ISADDKEYSETAPPLICABLE, PRODUCT.MSSPMONTHLYOPTION, C.ISNETWORKPRODUCT, PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT  , PRODUCT.CONNECTORNAME  ,PRODUCTCHOICEID,C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY      
+                  FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+       inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber           
+                    ORDER BY C.[NAME] ASC            
+                    FOR     XML AUTO ,            
+                                ELEMENTS                                     
+                    RETURN                
+                END                    
+        END                
+                                  
+   IF @ORDERNAME = 'PRODUCTLINE'            
+        AND @ORDERTYPE = '0'             
+        BEGIN   
+ --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)    
+            IF ( @OutformatXML = 0 )             
+                BEGIN                                     
+                    SELECT DISTINCT            
+      C.PRODUCTID ,            
+      C.SERIALNUMBER ,            
+      C.PRIMARYSERIALNUMBER ,            
+      C.ASSOCIATIONNAME ,            
+      C.[NAME] ,            
+      C.CUSTOMERPRODUCTID ,            
+      C.STATUS ,            
+      C.REGISTRATIONCODE ,            
+      C.FIRMWAREVERSION ,            
+       PRODUCT.PRODUCTLINE ,            
+      C.PRODUCTFAMILY ,            
+      C.ACTIVEPROMOTION ,            
+      C.PROMOTIONID ,            
+      C.NFR ,            
+      PRODUCT.OWNEROFTHEPRODUCT ,            
+      PRODUCT.PRODUCTOWNER ,            
+      C.ISSUENAME ,            
+      C.RESOLUTIONNAME ,            
+      C.PRODUCTNAME ,            
+      C.PRODUCTGROUPID ,            
+      C.PRODUCTGROUPNAME ,            
+      C.DISPLAYKEYSET ,            
+      C.ASSOCIATIONTYPE ,            
+      C.GROUPHEADERTEXT ,            
+      C.ASSOCIATIONTYPEID ,            
+      C.ISEPRS ,            
+      C.REMOVEASSOCIATION ,            
+      C.DELETEDM ,            
+      C.REGCODE ,            
+      C.CREATEDDATE AS REGISTRATIONDATE,      
+  -- CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,     
+     C.LASTPINGDATE AS LASTPINGDATE,  
+      C.HGMSPROVISIONINGSTATUS,          
+      C.MCAFEEORDER,          
+      PRODUCT.ISDELETEALLOWED,          
+      PRODUCT.ISTRANSFERALLOWED,          
+      PRODUCT.ISRENAMEALLOWED,          
+      PRODUCT.ISSECUREUPGRADE,          
+      C.S1SVCSTATUS,          
+      C.SENTINELONEEXPIRYDATE,          
+      C.PRODUCTTYPE,          
+      C.EPAID ,          
+      C.SERVICELINE ,C.ISBILLABLE,          
+      PRODUCT.ROLETYPE,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED, PRODUCT.ORGNAME, PRODUCT.ISADDKEYSETAPPLICABLE, PRODUCT.MSSPMONTHLYOPTION , C.ISNETWORKPRODUCT   , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION  , PRODUCT.ISSHAREDTENANT      ,PRODUCTCHOICEID, C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY     
+                     FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+       inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber            
+                    ORDER BY  PRODUCT.PRODUCTLINE DESC                                                            
+                    RETURN                  
+              END                
+      ELSE             
+                BEGIN    
+ --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)      
+                    SELECT DISTINCT            
+     C.PRODUCTID ,            
+     C.SERIALNUMBER ,            
+     C.[NAME] ,            
+     C.CUSTOMERPRODUCTID ,            
+C.STATUS ,            
+      C.REGISTRATIONCODE ,            
+      C.FIRMWAREVERSION ,            
+       PRODUCT.PRODUCTLINE ,            
+      C.PRODUCTFAMILY ,            
+      C.ACTIVEPROMOTION ,            
+      C.PROMOTIONID ,            
+    C.NFR ,            
+      PRODUCT. OWNEROFTHEPRODUCT ,            
+      PRODUCT. PRODUCTOWNER ,            
+      C.ISSUENAME ,            
+      C.RESOLUTIONNAME ,            
+      C.PRODUCTNAME ,            
+      C.PRODUCTGROUPID ,            
+      C.PRODUCTGROUPNAME ,            
+      C.DISPLAYKEYSET ,            
+      C.ASSOCIATIONTYPE ,            
+      C.GROUPHEADERTEXT ,            
+      C.ISEPRS ,            
+      C.CREATEDDATE AS REGISTRATIONDATE,      
+   --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,       
+     C.LASTPINGDATE AS LASTPINGDATE,  
+      C.HGMSPROVISIONINGSTATUS,          
+      C.SENTINELONEEXPIRYDATE,C.PRODUCTTYPE,C.EPAID ,C.SERVICELINE ,C.ISBILLABLE,PRODUCT.ROLETYPE ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED,       
+   PRODUCT.ORGNAME, PRODUCT.ISADDKEYSETAPPLICABLE, PRODUCT.MSSPMONTHLYOPTION ,C.ISNETWORKPRODUCT      
+   , PRODUCT.EMAILADDRESS,      
+    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT      ,PRODUCTCHOICEID, C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY   
+                     FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+       inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber           
+          ORDER BY  PRODUCT.PRODUCTLINE ASC            
+     FOR     XML AUTO ,            
+                         ELEMENTS                        
+     RETURN                
+                END            
+        END                
+            
+    IF @ORDERNAME = 'REGISTEREDDATE'            
+        AND @ORDERTYPE = '0'             
+        BEGIN          
+          
+   IF ISNULL(@ISMSSPUSER, '') <> ''  AND EXISTS (SELECT ORGANIZATIONID FROM ORGANIZATION WITH (NOLOCK)      
+  WHERE ORGANIZATIONID = @ORGID AND MASTERMSSP = 1)      
+ BEGIN -- Master MSSP user, show all products from mssp orgs which are marked as MSSPMONHTLY = YES      
+      
+  CREATE TABLE #tMSSPIDS         
+  (        
+  MSSPID INT,        
+  MSSPNAME NVARCHAR(50),        
+  MASTERMSSP BIT DEFAULT(0)        
+  )          
+        
+  CREATE TABLE #MSSPTENANTS        
+  (ID INT IDENTITY        
+  ,TENANTNAME VARCHAR(255)        
+  ,TENANTID INT        
+  ,MSSPNAME VARCHAR(50)        
+  ,MSSPID INT        
+  )        
+          
+  CREATE TABLE #MSSPPRODUCTSERVICES        
+  (          
+  ID BIGINT IDENTITY(1,1)          
+  ,TENANTID INT          
+  ,SERIALNUMBER VARCHAR(50)       
+  ,PRODUCTID INT           
+  )        
+        
+  CREATE TABLE #UNLISTEDPRODUCTS        
+  (TENANTID INT        
+  ,PRODUCTID INT        
+  ,SERIALNUMBER VARCHAR(50)        
+  )        
+      
+   INSERT INTO #tMSSPIDS        
+   SELECT MM.MASTERMSSPID,MM.MSSPNAME, MM.MSSPORGANIZATIONID FROM MASTERMSSP MM WITH (NOLOCK)        
+      WHERE  MM.MASTERORGANIZATIONID = @ORGID AND ISNULL(MM.MSSPORGANIZATIONID,0) <> 0;       
+      
+    INSERT INTO #MSSPTENANTS(TENANTID, TENANTNAME, MSSPID, MSSPNAME)            
+   SELECT P.PRODUCTGROUPID, P.PRODUCTGROUPNAME, M.MSSPID, M.MSSPNAME             
+   FROM PRODUCTGROUP P WITH (NOLOCK), #tMSSPIDS M WITH ( NOLOCK ), DBO.FNMSSPTENANTSLIST (@USERNAME)MP      
+   WHERE P.MASTERMSSPID = M.MSSPID AND MP.PRODUCTGROUPID = P.PRODUCTGROUPID          
+       
+   INSERT INTO #MSSPPRODUCTSERVICES ( TENANTID, SERIALNUMBER, PRODUCTID)        
+   SELECT PD.PRODUCTGROUPID,  PD.SERIALNUMBER, M.PRODUCTID       
+   FROM #MSSPTENANTS MT WITH (NOLOCK), PRODUCTGROUPDETAIL PD WITH (NOLOCK),       
+   MSSPPRODUCTSERVICESSUMMARY M WITH (NOLOCK),       
+   CUSTOMERPRODUCTS CP WITH (NOLOCK) WHERE MT.TENANTID = PD.PRODUCTGROUPID AND      
+   PD.SERIALNUMBER = M.SERIALNUMBER AND PD.SERIALNUMBER = CP.SERIALNUMBER AND       
+   CP.MSSPMONTHLY = 'YES' AND M.STATUS = 'ACTIVE'       
+   GROUP BY PD.PRODUCTGROUPID, PD.SERIALNUMBER, M.PRODUCTID;      
+       
+         
+   INSERT INTO #UNLISTEDPRODUCTS         
+   SELECT PD.PRODUCTGROUPID, CP.PRODUCTID, PD.SERIALNUMBER         
+   FROM #MSSPTENANTS MT, PRODUCTGROUPDETAIL PD WITH (NOLOCK), CUSTOMERPRODUCTS CP WITH (NOLOCK) WHERE       
+   MT.TENANTID = PD.PRODUCTGROUPID AND PD.SERIALNUMBER = CP.SERIALNUMBER AND CP.MSSPMONTHLY = 'YES'       
+   AND PD.SERIALNUMBER NOT IN (SELECT SERIALNUMBER  FROM #MSSPPRODUCTSERVICES (NOLOCK))      
+   --EXCEPT        
+   --SELECT TENANTID, PRODUCTID, SERIALNUMBER  FROM #MSSPPRODUCTSERVICES      
+       
+    --SELECT * from #UNLISTEDPRODUCTS      
+        
+   INSERT INTO #MSSPPRODUCTSERVICES ( TENANTID, SERIALNUMBER, PRODUCTID)        
+   SELECT TENANTID, SERIALNUMBER, MMPS.PRODUCTID      
+   FROM #UNLISTEDPRODUCTS U WITH (NOLOCK), MASTERMSSPPRODUCTSERVICES MMPS WITH (NOLOCK)       
+   WHERE U.PRODUCTID = MMPS.PRODUCTID          
+   GROUP BY TENANTID, SERIALNUMBER, MMPS.PRODUCTID;      
+      
+     --SELECT * from #MSSPPRODUCTSERVICES      
+      
+     INSERT  INTO #TEMPLISTTABLE            
+       ( PRODUCTID ,            
+         SERIALNUMBER ,                                 
+         PRODUCTFAMILY,          
+          PRODUCTLINE,          
+          ACTIVEPROMOTION           
+                
+       )                                 
+    SELECT CPS.PRODUCTID, CPS.SERIALNUMBER, PRODUCTFAMILY,      
+    PRODUCTLINE, ACTIVEPROMOTION from #MSSPPRODUCTSERVICES M WITH (NOLOCK),      
+    CUSTOMERPRODUCTSSUMMARY CPS WITH (NOLOCK)      
+    WHERE M.SERIALNUMBER = CPS.SERIALNUMBER      
+    AND CPS.SERIALNUMBER NOT IN (SELECT SERIALNUMBER FROM #TEMPLISTTABLE)        
+      
+    UPDATE #TEMPLISTTABLE              
+ SET MSSPMONTHLYOPTION = CASE WHEN #TEMPLISTTABLE.PRODUCTID IN (SELECT MS.PRODUCTID      
+     FROM MASTERMSSPPRODUCTSERVICES MS WITH (NOLOCK), CUSTOMERPRODUCTS CP WITH (NOLOCK) WHERE      
+      CP.SERIALNUMBER = #TEMPLISTTABLE.SERIALNUMBER AND MS.STATUS='ACTIVE' AND CP.MSSPMONTHLY = 'YES')      
+  THEN 'DISABLE' -- MSSP Monthly is enabled, hence show disable option      
+      
+  WHEN #TEMPLISTTABLE.PRODUCTID IN (SELECT MS.PRODUCTID      
+     FROM MASTERMSSPPRODUCTSERVICES MS WITH (NOLOCK), CUSTOMERPRODUCTS CP WITH (NOLOCK) WHERE      
+     CP.SERIALNUMBER = #TEMPLISTTABLE.SERIALNUMBER AND MS.STATUS='ACTIVE' AND ISNULL(CP.MSSPMONTHLY,'NO') = 'NO')      
+  THEN 'ENABLE' END -- MSSP Monthly is disabled, hence show enable option      
+      
+  IF(@ROLETYPELOGIC='YES')        
+  BEGIN         
+        
+        
+UPDATE #TEMPLISTTABLE        
+    SET ROLETYPE =        
+  CASE        
+  (SELECT TOP 1 ISSUPERADMIN FROM TENANTGROUPPERMISSIONSUMMARY WITH (NOLOCK) WHERE USERNAME=@USERNAME AND PRODUCTGROUPID=P.PRODUCTGROUPID        
+  AND PARTYID IN (SELECT PARTYID FROM PARTY(NOLOCK) WHERE CONTACTID = @CONTACTID)) WHEN 'YES' THEN 'SUPERADMIN'        
+  ELSE         
+  ISNULL((SELECT TOP 1 ACCESSTYPEPRODMGMTROLETYPE         
+  FROM TENANTGROUPPERMISSIONSUMMARY WITH (NOLOCK) WHERE USERNAME=@USERNAME AND PRODUCTGROUPID=P.PRODUCTGROUPID AND PARTYID IN (SELECT PARTYID FROM PARTY(NOLOCK) WHERE CONTACTID = @CONTACTID))         
+  ,dbo.FNGETTENANTGROUPPERMISSION(@USERNAME,P.PRODUCTGROUPID,@APPLICATIONFUNCTIONALITY,'MSSPUSER', DEFAULT))        
+  END        
+  FROM #TEMPLISTTABLE P  WITH (NOLOCK) WHERE MSSPMONTHLYOPTION='DISABLE'      
+        
+END         
+IF(@ROLETYPELOGIC='NO') OR          
+ EXISTS(SELECT T.PRODUCTGROUPID FROM #TEMPLISTTABLE T   WITH (NOLOCK)        
+   INNER JOIN  TENANTACTIVITYSTAGING CP WITH (NOLOCK)          
+   ON T.PRODUCTGROUPID=CP.PRODUCTGROUPID        
+   AND PROCESSED='NO')         
+BEGIN         
+ UPDATE #TEMPLISTTABLE          
+   SET ROLETYPE = DBO.FNGETTENANTGROUPPERMISSION(@USERNAME,T.PRODUCTGROUPID,'ACCESSTYPEPRODMGMT','MSSPUSER', DEFAULT)          
+   FROM #TEMPLISTTABLE T        
+END        
+      
+IF EXISTS (SELECT APPLICATIONPARTYROLEID FROM APPLICATIONPARTYROLE NOLOCK WHERE PARTYID=(SELECT TOP 1 PARTYID FROM VCUSTOMER(NOLOCK) WHERE USERNAME=@USERNAME) AND           
+  APPLICATIONROLEID IN(SELECT APPLICATIONROLEID FROM APPLICATIONROLE NOLOCK WHERE ROLENAME='WORKSPACEBETA' AND APPLICATIONNAME='MSW')) OR          
+  EXISTS(SELECT * FROM APPLICATIONCONFIGVALUE NOLOCK WHERE APPLICATIONCONFIGNAME='ISWORKSPACEENABLED' AND APPLICATIONCONFIGVALUE='FORCED')           
+  BEGIN          
+   UPDATE #TEMPLISTTABLE            
+   SET ISTRANSFERALLOWED =CASE WHEN PRODUCTID IN (  400  ) THEN 'NO' WHEN ACTIVEPROMOTION =1 AND @ROLLUP = 0 THEN 'NO'           
+   WHEN  PRODUCTLINE='STORAGE MODULE' OR PRODUCTLINE='SATA MODULE' OR PRODUCTLINE='M2 STORAGE MODULE' THEN 'NO' WHEN S1SVCSTATUS = 'PENDING' THEN 'NO' ELSE 'YES' END          
+          
+    UPDATE #TEMPLISTTABLE           
+  SET ISTRANSFERALLOWED = CASE WHEN UPPER(ROLETYPE) IN ('READONLY','OPERATOR') THEN 'NO' ELSE ISTRANSFERALLOWED END        
+   FROM  #TEMPLISTTABLE TMP           
+  END          
+  ELSE          
+  BEGIN          
+  UPDATE #TEMPLISTTABLE            
+   SET ISTRANSFERALLOWED =CASE WHEN OWNEROFTHEPRODUCT!=1 THEN 'NO' WHEN PRODUCTID IN ( 401 ) THEN 'NO' WHEN ACTIVEPROMOTION =1 AND @ROLLUP = 0 THEN 'NO'            
+   WHEN  PRODUCTLINE='STORAGE MODULE' OR PRODUCTLINE='SATA MODULE' OR PRODUCTLINE='M2 STORAGE MODULE' THEN 'NO' WHEN S1SVCSTATUS = 'PENDING' THEN 'NO' ELSE 'YES' END           
+  END        
+      
+ --UPDATE #TEMPLISTTABLE              
+ --SET MSSPMONTHLYOPTION = CASE WHEN ISNULL(PG.MASTERMSSPID,0)=0 THEN ''       
+ --WHEN ISNULL(PG.MASTERMSSPID,0)>0 AND PG.ISMAPPEDMSSPID=1 THEN '' ELSE MSSPMONTHLYOPTION END      
+ --FROM #TEMPLISTTABLE T,  DBO.FNNONMSSPTENANTSLIST(@USERNAME) PG       
+ --WHERE T.PRODUCTGROUPID=PG.PRODUCTGROUPID      
+      
+   DROP TABLE #MSSPTENANTS      
+   DROP TABLE #tMSSPIDS      
+   DROP TABLE #UNLISTEDPRODUCTS      
+   DROP TABLE #MSSPPRODUCTSERVICES      
+                
+ END      
+      
+ UPDATE  #TEMPLISTTABLE            
+    SET     OWNEROFTHEPRODUCT = 1            
+    WHERE   SERIALNUMBER IN ( SELECT SERIALNUMBER            
+                              FROM      CUSTOMERPRODUCTSSUMMARY WITH ( NOLOCK )            
+                              WHERE     USERNAME = @USERNAME )         
+      
+      
+IF @ORGBASEDASSETOWNSERSHIPENABLED = 'YES' AND @ISORGBASEDACCOUNT = 'YES'      
+BEGIN      
+      
+ UPDATE  #TEMPLISTTABLE            
+    SET     OWNEROFTHEPRODUCT = 1       
+ WHERE OWNEROFTHEPRODUCT = 0  AND SERIALNUMBER IN (SELECT SERIALNUMBER            
+                              FROM      CUSTOMERPRODUCTS WITH ( NOLOCK )            
+                              WHERE  USERNAME IN (SELECT USERNAME FROM vCUSTOMER WHERE ORGANIZATIONID = @ORGID))      
+                
+      
+END      
+                                          
+    UPDATE  #TEMPLISTTABLE            
+    SET     PRODUCTOWNER = @USERNAME                    
+                          
+    UPDATE  #TEMPLISTTABLE              
+    SET     PRODUCTOWNER = CP.USERNAME ,      
+ PRODUCTGROUPID =   CP.PRODUCTGROUPID ,            
+    PRODUCTGROUPNAME =  CP.PRODUCTGROUPNAME       
+    FROM    #TEMPLISTTABLE T ,              
+            CUSTOMERPRODUCTSSUMMARY CP WITH ( NOLOCK )              
+    WHERE   T.SERIALNUMBER = CP.SERIALNUMBER              
+            AND T.OWNEROFTHEPRODUCT = 0       
+                     
+                          
+    IF ( @ORDERNAME IS NULL )            
+        OR ( @ORDERNAME = '' )             
+        SELECT  @ORDERNAME = 'NAME'                               
+    IF ( @ORDERTYPE IS NULL )            
+        OR ( @ORDERTYPE = '' )             
+        SELECT  @ORDERTYPE = 0                    
+          
+                  
+    IF @APPNAME IN ( 'MSW', 'CHANNEL' )             
+    BEGIN            
+  -- Dont show Cloud tenant 2.0(NFR = 10) and CSCMA 1.9(NFR = 11) tenant serial# My products only in MSW          
+  DELETE  #TEMPLISTTABLE FROM #TEMPLISTTABLE T            
+  WHERE   T.PRODUCTID = 400            
+  AND T.SERIALNUMBER in (SELECT SERIALNUMBER FROM PRODUCTSERIALNUMBERS PSN (nolock) WHERE PSN.SERIALNUMBER = T.SERIALNUMBER AND PSN.PRODUCTID = 400 AND NFR IN (10, 11))            
+            
+          
+  --If AppName = 'MSW', then only return those srl nos where OEMCode = @OEMCODE              
+  DELETE  FROM #TEMPLISTTABLE            
+    WHERE   PRODUCTID NOT IN ( SELECT   PRODUCTID            
+             FROM     PRODUCTS WITH ( NOLOCK )            
+  WHERE    OEMCODE = @OEMCODE )              
+    END                  
+                  
+          
+                             
+                    
+    IF ISNULL(@OEMCODE, '') = 'HGMS'             
+        BEGIN            
+            UPDATE  #TEMPLISTTABLE            
+            SET     PRODUCTFAMILY = NULL            
+            
+            UPDATE  #TEMPLISTTABLE            
+            SET     PRODUCTFAMILY = 'Click here to Login'            
+            FROM    #TEMPLISTTABLE T ,            
+                    HOSTEDGMSDETAILS H ( NOLOCK )            
+            WHERE   T.SERIALNUMBER = H.SERIALNUMBER         
+AND H.STATUS = 'SUCCESS'            
+        END           
+           
+IF @ORGBASEDASSETOWNSERSHIPENABLED = 'YES' AND @ISORGBASEDACCOUNT = 'YES'      
+BEGIN      
+-- Restrict Product Operations such as Rename, Transfer and Delete when user has gained Access through Affiliation Tenant scope with Read-only Access (MSW-25825)      
+      
+ UPDATE  #TEMPLISTTABLE            
+    SET     ISRENAMEALLOWED = 'NO',      
+ ISDELETEALLOWED = 'NO',      
+ ISTRANSFERALLOWED = 'NO'      
+ WHERE OWNEROFTHEPRODUCT = 0  AND PRODUCTGROUPID IN       
+  (SELECT PRODUCTGROUPID FROM PARTYPRODUCTGROUP WITH (NOLOCK)      
+  WHERE ISNULL(COMANAGEORGTRACKERID,0) > 0 AND PERMISSIONTYPEID IN (SELECT PERMISSIONTYPEID FROM PERMISSIONTYPE WITH (NOLOCK) WHERE      
+  INTERNALDESCRIPTION = 'READONLY'))      
+                
+END      
+            
+ if @SOURCE ='RESTAPI' AND @ISLARGEUSER = 'NO'          
+  begin          
+   DECLARE @TPARTYPRODUCTGRPDETAIL TABLE  
+   (  
+   CONTACTID INT,  
+   SERIALNUMBER VARCHAR(30),  
+   PARTYGROUPID INT,  
+   PARTYGROUPNAME NVARCHAR(255)  
+   )      
+  INSERT INTO @TPARTYPRODUCTGRPDETAIL SELECT CONTACTID,SERIALNUMBER,PARTYGROUPID,PARTYGROUPNAME FROM VWPARTYPRODUCTGROUPDETAIL WITH (NOLOCK) WHERE CONTACTID=@CONTACTID     
+  UPDATE  #TEMPLISTTABLE            
+    SET     PARTYGROUPIDS = stuff((select  distinct ',' + convert(varchar,vw.PARTYGROUPID) from @TPARTYPRODUCTGRPDETAIL vw          
+   where vw.SERIALNUMBER = TMP.SERIALNUMBER for xml path('')),1,1,'') + ','           
+    FROM    #TEMPLISTTABLE TMP            
+            
+          
+    UPDATE  #TEMPLISTTABLE            
+    SET     PARTYGROUPNAMES = stuff((select distinct ',' + vw.PARTYGROUPNAME from @TPARTYPRODUCTGRPDETAIL vw        
+    where vw.SERIALNUMBER = TMP.SERIALNUMBER for xml path('')),1,1,'') + ','             
+    FROM    #TEMPLISTTABLE TMP            
+           
+ --   UPDATE  #TEMPLISTTABLE            
+ --   SET     PRODUCTGROUPIDS = stuff((select  distinct ',' + convert(varchar,vw.PRODUCTGROUPID) from VWPARTYPRODUCTGROUPDETAIL vw    (NOLOCK)          
+ --where vw.SERIALNUMBER = TMP.SERIALNUMBER and VW.CONTACTID = @CONTACTID  for xml path('')),1,1,'') + ','           
+ --   FROM    #TEMPLISTTABLE TMP            
+            
+        
+  end        
+          
+    --IF @SOURCE ='RESTAPI' AND @ISLARGEUSER = 'YES'        
+    --BEGIN        
+        UPDATE #TEMPLISTTABLE SET PRODUCTGROUPNAMES = ISNULL(CP.PRODUCTGROUPNAME,T.PRODUCTGROUPNAME)        
+  ,PRODUCTGROUPIDS= ISNULL(CP.PRODUCTGROUPID, T.PRODUCTGROUPID)        
+  FROM #TEMPLISTTABLE T WITH (NOLOCK)           
+  inner join CUSTOMERPRODUCTSSUMMARY cp with (nolock)        
+  on cp.serialnumber=t.serialnumber      
+        
+  --select * from #TEMPLISTTABLE      
+               
+ UPDATE  #TEMPLISTTABLE            
+  SET  ISLICENSEEXPIRED = 1 , LICENSEEXPIRYCNT=1            
+  WHERE   LICENSEEXPIRYCNT > 0          
+          
+  UPDATE  #TEMPLISTTABLE            
+  SET  ISSOONEXPIRING = 1 , SOONEXPIRINGCNT = 1            
+  WHERE   SOONEXPIRINGCNT > 0          
+          
+  UPDATE  #TEMPLISTTABLE            
+  SET   ACTIVELICENSECNT = 1            
+  WHERE   ACTIVELICENSECNT > 0              
+          
+            IF ( @OutformatXML = 0 )             
+                BEGIN             
+              
+              
+              --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)  
+               
+                         IF @PRODUCTLIST = 'LIMIT'             
+                         BEGIN     
+                             -- Apply pagination logic for LIMITED results
+                             DECLARE @LimitStartRow INT, @LimitEndRow INT, @LimitTotalCount INT
+                             SET @LimitStartRow = (@PAGENO - 1) * @PAGESIZE + 1
+                             SET @LimitEndRow = @PAGENO * @PAGESIZE
+
+                             -- Get total count first
+                             SELECT @LimitTotalCount = COUNT(*) 
+                             FROM CUSTOMERPRODUCTSSUMMARY C with (nolock)
+                             INNER JOIN #TEMPLISTTABLE AS PRODUCT ON C.serialnumber = PRODUCT.serialnumber
+
+                             -- Apply min/max count filters if specified
+                             IF (@MINCOUNT IS NOT NULL AND @LimitTotalCount < @MINCOUNT) OR 
+                                (@MAXCOUNT IS NOT NULL AND @LimitTotalCount > @MAXCOUNT)
+                             BEGIN
+                                 SELECT 'No records match the count criteria' AS Message, 
+                                        @LimitTotalCount AS TotalCount, 
+                                        @MINCOUNT AS MinCount, 
+                                        @MAXCOUNT AS MaxCount
+                                 RETURN
+                             END
+
+                             ;WITH LimitedPaginatedResults AS (
+                                 SELECT DISTINCT            
+                                C.PRODUCTID ,            
+                                C.SERIALNUMBER ,            
+                                C.[NAME] ,            
+                                C.CUSTOMERPRODUCTID ,            
+                                C.STATUS ,            
+                                C.REGISTRATIONCODE ,            
+                                C.FIRMWAREVERSION ,            
+                                 PRODUCT.PRODUCTLINE ,            
+                                C.PRODUCTFAMILY ,            
+                                C.ACTIVEPROMOTION ,            
+                                C.PROMOTIONID ,            
+                                C.NFR ,            
+                                PRODUCT.OWNEROFTHEPRODUCT ,            
+                                PRODUCT.PRODUCTOWNER ,            
+                                C.ISSUENAME ,            
+                                C.RESOLUTIONNAME ,            
+                                C.PRODUCTNAME ,            
+                                C.PRODUCTGROUPID ,            
+                                C.PRODUCTGROUPNAME ,            
+                                PRODUCT.PARTYGROUPNAMES,          
+                                C.RELEASESTATUS,          
+                                C.DISPLAYKEYSET ,            
+                                C.ASSOCIATIONTYPE ,            
+                                C.GROUPHEADERTEXT ,            
+                                C.ASSOCIATIONTYPEID ,            
+                                C.ISEPRS ,            
+                                C.CREATEDDATE AS REGISTRATIONDATE ,      
+                             --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,    
+                          C.LASTPINGDATE AS LASTPINGDATE,  
+                                C.REMOVEASSOCIATION ,            
+                          C.DELETEDM ,            
+                                C.REGCODE ,            
+                                C.HGMSPROVISIONINGSTATUS,          
+                              C.MCAFEEORDER,          
+                                C.DEVICESTATUS,          
+                                PRODUCT.ISDELETEALLOWED,          
+                                PRODUCT.ISTRANSFERALLOWED,          
+                                PRODUCT.ISRENAMEALLOWED,          
+                                PRODUCT.ISSECUREUPGRADE,          
+                                C.PTAB,          
+                                C.LTAB,          
+                                C.CBKUPTAB,          
+                                C.FWTAB,          
+                                C.S1SVCSTATUS,          
+                                C.SENTINELONEEXPIRYDATE,          
+                                C.PRODUCTTYPE,          
+                                PRODUCT.LICENSEEXPIRYCNT,          
+                                PRODUCT.SOONEXPIRINGCNT,          
+                                PRODUCT.ACTIVELICENSECNT,          
+                                PRODUCT.ISLICENSEEXPIRED,          
+                           PRODUCT.ISSOONEXPIRING,          
+                                PRODUCT.MINLICENSEEXPIRYDATE,          
+                                PRODUCT.SOONEXPIRYDATE,          
+                                PRODUCT.CCNODECOUNT,          
+                                PRODUCT.HESNODECOUNT,          
+                                PRODUCT.CASNODECOUNT,          
+                              PRODUCT.GMSNODECOUNT,
+                              C.EPAID ,
+                              C.SERVICELINE,
+                              C.ISBILLABLE,          
+                               -- C.ISDOWNLOADAVAILABLE,       
+                                C.UPDATESAVAILABLE 'ISDOWNLOADAVAILABLE',          
+                                C.ISZTSUPPORTED ,          
+                                C.SUPPORTEXPIRYDATE,          
+                                C.NONSUPPORTEXPIRYDATE,
+                                PRODUCT.SASELICENSECOUNT,
+                                C.ISZEROTOUCHALLOWED, 
+                                PRODUCT.ORGNAME, 
+                                PRODUCT.ISADDKEYSETAPPLICABLE, 
+                                PRODUCT.MSSPMONTHLYOPTION,
+                                C.ISNETWORKPRODUCT,      
+                                PRODUCT.EMAILADDRESS,      
+                                PRODUCT.DESCRIPTION , 
+                                PRODUCT.ISSHAREDTENANT ,
+                                PRODUCTCHOICEID,
+                                C.VULTOOLTIPTEXT, 
+                                C.VULHREFTEXT,
+                                C.VULSEVERITY, 
+                                CU.MANAGEMENTOPTION,
+                                ROW_NUMBER() OVER (ORDER BY C.CREATEDDATE DESC) AS RowNum,
+                                @LimitTotalCount AS TotalCount
+                                             FROM    CUSTOMERPRODUCTSSUMMARY C with (nolock)          
+                                inner join   #TEMPLISTTABLE   AS PRODUCT   on   C.serialnumber=PRODUCT.serialnumber  
+                             Left join CUSTOMERPRODUCTS CU WITH (NOLOCK) ON CU.SERIALNUMBER = C.serialnumber  
+                             )
+                             SELECT * FROM LimitedPaginatedResults 
+                             WHERE RowNum BETWEEN @LimitStartRow AND @LimitEndRow                                                            
+                             RETURN               
+                        END             
+                    ELSE             
+                        BEGIN      
+            
+       --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)  
+                 
+          
+                                               -- Apply pagination logic
+                        DECLARE @StartRow INT, @EndRow INT
+                        SET @StartRow = (@PAGENO - 1) * @PAGESIZE + 1
+                        SET @EndRow = @PAGENO * @PAGESIZE
+
+                        -- Get total count first
+                        DECLARE @TotalCount INT
+                        SELECT @TotalCount = COUNT(*) 
+                        FROM CUSTOMERPRODUCTSSUMMARY C with (nolock)
+                        INNER JOIN #TEMPLISTTABLE AS t ON C.serialnumber = t.serialnumber
+
+                        -- Apply min/max count filters if specified
+                        IF (@MINCOUNT IS NOT NULL AND @TotalCount < @MINCOUNT) OR 
+                           (@MAXCOUNT IS NOT NULL AND @TotalCount > @MAXCOUNT)
+                        BEGIN
+                            -- Return empty result set if count doesn't meet criteria
+                            SELECT 'No records match the count criteria' AS Message, 
+                                   @TotalCount AS TotalCount, 
+                                   @MINCOUNT AS MinCount, 
+                                   @MAXCOUNT AS MaxCount
+                            RETURN
+                        END
+
+                        ;WITH PaginatedResults AS (
+                            SELECT DISTINCT              
+                             t.CID,             
+                             C.PRODUCTID ,              
+                             C.SERIALNUMBER ,              
+                             C.[NAME] ,              
+                             C.CUSTOMERPRODUCTID ,              
+                             C.STATUS ,              
+                             C.REGISTRATIONCODE ,              
+                             C.FIRMWAREVERSION ,              
+                              t.PRODUCTLINE ,                
+                             C.PRODUCTFAMILY ,              
+                             C.ACTIVEPROMOTION ,              
+                             C.PROMOTIONID ,              
+                             C.NFR ,              
+                            t.OWNEROFTHEPRODUCT ,              
+                             t.PRODUCTOWNER ,              
+                             C.ISSUENAME ,              
+                             C.RESOLUTIONNAME ,              
+                             C.PRODUCTNAME ,              
+                             C.PRODUCTGROUPID ,          
+                             C.PRODUCTGROUPNAME ,            
+                             t.PARTYGROUPNAMES,            
+                             C.RELEASESTATUS,            
+                             C.DISPLAYKEYSET ,              
+                             C.ASSOCIATIONTYPE ,              
+                             C.GROUPHEADERTEXT ,              
+                             C.ASSOCIATIONTYPEID ,              
+                             C.ISEPRS ,              
+                             C.CREATEDDATE AS REGISTRATIONDATE ,       
+                             --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,  
+                          C.LASTPINGDATE AS LASTPINGDATE,  
+                             C.REMOVEASSOCIATION ,              
+                             C.DELETEDM ,              
+                             C.REGCODE ,              
+                             t.NEEDEDFIRMWAREVERSION ,              
+                             t.FIRMWARESTATUS ,              
+                             t.FIRMWARETEXT ,              
+                             C.SRLNOSTATUS ,              
+                             C.RELEASENOTES ,              
+                             C.HGMSPROVISIONINGSTATUS,            
+                             C.MCAFEEORDER,            
+                             C.DEVICESTATUS,            
+                             t.ISDELETEALLOWED,            
+                             t.ISTRANSFERALLOWED,            
+                             t.ISRENAMEALLOWED,            
+                             t.ISSECUREUPGRADE,            
+                             C.SUPPORTDATE,            
+                             t.PRODUCTGROUPNAMES,            
+                             C.PTAB,            
+                             C.LTAB,            
+                             C.CBKUPTAB,            
+                             C.FWTAB,            
+                             C.S1SVCSTATUS,            
+                             C.SENTINELONEEXPIRYDATE,            
+                             C.PRODUCTTYPE,            
+                             t.LICENSEEXPIRYCNT,            
+                             t.SOONEXPIRINGCNT,            
+                             t.ACTIVELICENSECNT,            
+                             t.ISLICENSEEXPIRED,            
+                             t.ISSOONEXPIRING,            
+                             t.MINLICENSEEXPIRYDATE,            
+                             t.SOONEXPIRYDATE,            
+                             t.CCNODECOUNT,            
+                             t.HESNODECOUNT,            
+                            t.CASNODECOUNT,            
+                             t.GMSNODECOUNT,          
+                             C.EPAID ,          
+                             C.SERVICELINE,          
+                             C.ISBILLABLE ,            
+                            --C.ISDOWNLOADAVAILABLE,       
+                                                     C.UPDATESAVAILABLE 'ISDOWNLOADAVAILABLE',            
+                             C.ISZTSUPPORTED,            
+                             C.SUPPORTEXPIRYDATE,            
+                             C.NONSUPPORTEXPIRYDATE ,            
+                             t.ROLETYPE ,          
+                             t.SASELICENSECOUNT,          
+                             C.ISZEROTOUCHALLOWED,           
+                             t.ORGNAME,      
+                             t.ISADDKEYSETAPPLICABLE,      
+                             t.MSSPMONTHLYOPTION,      
+                             C.ISNETWORKPRODUCT,       
+                             t.EMAILADDRESS,      
+                             t.DESCRIPTION , 
+                             t.ISSHAREDTENANT,
+                             PRODUCTCHOICEID,
+                             C.VULTOOLTIPTEXT, 
+                             C.VULHREFTEXT,
+                             C.VULSEVERITY,
+                             t.MANAGEMENTOPTION,
+                             t.ORGID,
+                             ROW_NUMBER() OVER (ORDER BY C.CREATEDDATE DESC) AS RowNum,
+                             @TotalCount AS TotalCount
+                           FROM  CUSTOMERPRODUCTSSUMMARY C with (nolock)  
+                           INNER JOIN #TEMPLISTTABLE AS t ON C.serialnumber = t.serialnumber          
+                        )
+                        SELECT * FROM PaginatedResults 
+                        WHERE RowNum BETWEEN @StartRow AND @EndRow          
+               
+   INSERT INTO @PRODGROUPTABLE (PRODUCTGROUPID, PRODUCTGROUPNAME)      
+       SELECT DISTINCT PRODUCTGROUPID, PRODUCTGROUPNAME FROM #TEMPLISTTABLE   AS t WHERE PRODUCTGROUPID IS NOT NULL        
 UPDATE @PRODGROUPTABLE      
    SET TOTALPRODUCTSCNT = (SELECT COUNT(t.PRODUCTGROUPID)      
                    FROM #TEMPLISTTABLE t      
@@ -2851,334 +7316,4 @@ UPDATE @PRODGROUPTABLE
        C.SUPPORTEXPIRYDATE,          
        C.NONSUPPORTEXPIRYDATE ,          
        PRODUCT.ROLETYPE  ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED, PRODUCT.ORGNAME, PRODUCT.ISADDKEYSETAPPLICABLE,      
-    PRODUCT.MSSPMONTHLYOPTION,      
-    C.ISNETWORKPRODUCT , PRODUCT.EMAILADDRESS,      
-    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT ,PRODUCTCHOICEID ,C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY,PRODUCT.MANAGEMENTOPTION,PRODUCT.ORGID       
-      FROM  CUSTOMERPRODUCTSSUMMARY C with (nolock)          
-        ,  #TEMPLISTTABLE   AS PRODUCT   where   C.serialnumber=PRODUCT.serialnumber          
-                            ORDER BY C.CREATEDDATE DESC            
-                            FOR     XML AUTO ,            
-           ELEMENTS                                     
-    RETURN               
-                        END            
- ELSE             
-                        BEGIN       
- --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)        
-                            SELECT DISTINCT            
-     C.PRODUCTID ,            
-        C.SERIALNUMBER ,            
-        C.[NAME] ,            
-        C.CUSTOMERPRODUCTID ,            
-        C.STATUS ,            
-        C.REGISTRATIONCODE ,            
-        C.FIRMWAREVERSION ,            
-         PRODUCT.PRODUCTLINE ,            
-        C.PRODUCTFAMILY ,            
-        C.ACTIVEPROMOTION ,            
-        C.PROMOTIONID ,            
-        C.NFR ,            
-        PRODUCT.OWNEROFTHEPRODUCT ,            
-        PRODUCT.PRODUCTOWNER ,            
-        C.ISSUENAME ,            
-        C.RESOLUTIONNAME ,            
-        C.PRODUCTNAME ,            
-        C.PRODUCTGROUPID ,            
-        C.PRODUCTGROUPNAME ,            
-        C.DISPLAYKEYSET ,            
-        C.ASSOCIATIONTYPE ,            
-        C.GROUPHEADERTEXT ,            
-        C.ISEPRS ,            
-        C.CREATEDDATE AS REGISTRATIONDATE,      
-  --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,         
-  C.LASTPINGDATE AS LASTPINGDATE,  
-        C.HGMSPROVISIONINGSTATUS,          
-        C.DEVICESTATUS,          
-        PRODUCT.ISDELETEALLOWED,          
-        PRODUCT.ISTRANSFERALLOWED,          
-        PRODUCT.ISRENAMEALLOWED,          
-        PRODUCT.ISSECUREUPGRADE,          
-        C.PTAB,          
-        C.LTAB,          
-        C.CBKUPTAB,          
-        C.FWTAB,          
-        C.SENTINELONEEXPIRYDATE,          
-        C.PRODUCTTYPE,          
-        PRODUCT.LICENSEEXPIRYCNT,          
-        PRODUCT.SOONEXPIRINGCNT,          
-        PRODUCT.ACTIVELICENSECNT,          
-        PRODUCT.MINLICENSEEXPIRYDATE,          
-     PRODUCT.SOONEXPIRYDATE,C.EPAID ,C.SERVICELINE,C.ISBILLABLE ,          
-        C.SUPPORTEXPIRYDATE,          
-        C.NONSUPPORTEXPIRYDATE ,          
-        PRODUCT.ROLETYPE ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED, PRODUCT.ORGNAME, PRODUCT.ISADDKEYSETAPPLICABLE,      
-  PRODUCT.MSSPMONTHLYOPTION,      
-  C.ISNETWORKPRODUCT   , PRODUCT.EMAILADDRESS,      
-    PRODUCT.DESCRIPTION , PRODUCT.ISSHAREDTENANT     ,PRODUCTCHOICEID,C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY    
-FROM  CUSTOMERPRODUCTSSUMMARY C with (nolock)          
-        ,  #TEMPLISTTABLE   AS PRODUCT   where   C.serialnumber=PRODUCT.serialnumber           
-        ORDER BY C.CREATEDDATE DESC            
-                            FOR     XML AUTO ,            
-                                        ELEMENTS                                     
-       RETURN               
-                        END            
-                                
-                END                                    
-      END               
-            
-    IF @ORDERNAME = 'REGISTEREDDATE'            
-        AND @ORDERTYPE = '1'             
-        BEGIN    
- --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)    
-            IF ( @OutformatXML = 0 )             
-                BEGIN                       
-                    SELECT DISTINCT            
-       C.PRODUCTID ,            
-       C.SERIALNUMBER ,            
-       C.[NAME] ,            
-       C.CUSTOMERPRODUCTID ,            
-       C.STATUS ,            
-       C.REGISTRATIONCODE ,            
-       C.FIRMWAREVERSION ,            
-        PRODUCT.PRODUCTLINE ,            
-       C.PRODUCTFAMILY ,            
-       C.ACTIVEPROMOTION ,            
-       C.PROMOTIONID ,            
-       C.NFR ,            
-       PRODUCT.OWNEROFTHEPRODUCT ,            
-       PRODUCT.PRODUCTOWNER ,            
-       C.ISSUENAME ,            
-       C.RESOLUTIONNAME ,          
-       C.PRODUCTNAME ,            
-       C.PRODUCTGROUPID ,            
-       C.PRODUCTGROUPNAME ,           
-       PRODUCT.PARTYGROUPNAMES,          
-       C.RELEASESTATUS ,          
-       C.DISPLAYKEYSET ,            
-       C.ASSOCIATIONTYPE ,            
-       C.GROUPHEADERTEXT ,            
-       C.ASSOCIATIONTYPEID ,            
-       C.ISEPRS ,            
-       C.CREATEDDATE AS REGISTRATIONDATE ,      
-   -- CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,       
-   C.LASTPINGDATE AS LASTPINGDATE,  
- C.REMOVEASSOCIATION ,            
-       C.DELETEDM ,            
-       C.REGCODE,            
-       C.HGMSPROVISIONINGSTATUS,          
-       C.MCAFEEORDER,          
-       C.DEVICESTATUS,          
-       PRODUCT.ISDELETEALLOWED,          
-       PRODUCT.ISTRANSFERALLOWED,          
-       PRODUCT.ISRENAMEALLOWED,          
-       PRODUCT.ISSECUREUPGRADE,          
-       C.S1SVCSTATUS,          
-       C.SENTINELONEEXPIRYDATE,          
-       C.PRODUCTTYPE,          
-       C.LICENSEEXPIRYCNT,          
-       C.SOONEXPIRINGCNT,          
-       C.ACTIVELICENSECNT,          
-       PRODUCT.MINLICENSEEXPIRYDATE,          
-       PRODUCT.SOONEXPIRYDATE,C.EPAID ,C.SERVICELINE,C.ISBILLABLE ,          
-       C.SUPPORTEXPIRYDATE,          
-       C.NONSUPPORTEXPIRYDATE ,          
-       PRODUCT.ROLETYPE  ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED, PRODUCT.ORGNAME, PRODUCT.ISADDKEYSETAPPLICABLE,      
-    PRODUCT.MSSPMONTHLYOPTION,      
-    C.ISNETWORKPRODUCT ,      
-    PRODUCT.EMAILADDRESS,      
-    PRODUCT.DESCRIPTION, PRODUCT.ISSHAREDTENANT  ,PRODUCTCHOICEID, C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY      
-       FROM  CUSTOMERPRODUCTSSUMMARY C with (nolock)          
-        ,  #TEMPLISTTABLE   AS PRODUCT   where   C.serialnumber=PRODUCT.serialnumber           
-                    ORDER BY C.CREATEDDATE ASC               
-                    RETURN                
-       END                
-            ELSE             
-                BEGIN    
- --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)      
-                    SELECT DISTINCT            
-      C.PRODUCTID ,            
-      C.SERIALNUMBER ,            
-      C.[NAME] ,            
-      C.CUSTOMERPRODUCTID ,            
-      C.STATUS ,            
-      C.REGISTRATIONCODE ,            
-      C.FIRMWAREVERSION ,            
-       PRODUCT.PRODUCTLINE ,            
-      C.PRODUCTFAMILY ,            
-      C.ACTIVEPROMOTION ,            
-      C.PROMOTIONID ,            
-      C.NFR ,            
-      PRODUCT.OWNEROFTHEPRODUCT ,            
-      PRODUCT.PRODUCTOWNER ,            
-      C.ISSUENAME ,            
-      C.RESOLUTIONNAME ,            
-      C.PRODUCTNAME ,            
-      C.PRODUCTGROUPID ,            
-      C.PRODUCTGROUPNAME ,            
-      PRODUCT.PARTYGROUPNAMES,          
-      C.RELEASESTATUS ,          
-      C.DISPLAYKEYSET ,            
-      C.ASSOCIATIONTYPE ,            
-      C.GROUPHEADERTEXT ,            
-      C.ISEPRS ,            
-      C.CREATEDDATE AS REGISTRATIONDATE ,       
-  -- CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,          
-  C.LASTPINGDATE AS LASTPINGDATE,  
-      C.REGCODE,            
-      C.HGMSPROVISIONINGSTATUS,          
-      C.DEVICESTATUS,          
-      PRODUCT.ISDELETEALLOWED,          
-      PRODUCT.ISTRANSFERALLOWED,          
-      PRODUCT.ISRENAMEALLOWED,          
-      PRODUCT.ISSECUREUPGRADE,          
-      C.SENTINELONEEXPIRYDATE ,          
-      C.PRODUCTTYPE,          
-     C.LICENSEEXPIRYCNT,          
-      C.SOONEXPIRINGCNT,          
-      C.ACTIVELICENSECNT,          
-      PRODUCT.MINLICENSEEXPIRYDATE,          
-      PRODUCT.SOONEXPIRYDATE,C.EPAID ,C.SERVICELINE,C.ISBILLABLE ,          
-      C.SUPPORTEXPIRYDATE,          
-       C.NONSUPPORTEXPIRYDATE ,          
-       PRODUCT.ROLETYPE  ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED, PRODUCT.ORGNAME, PRODUCT.ISADDKEYSETAPPLICABLE ,      
-    PRODUCT.MSSPMONTHLYOPTION,      
-    C.ISNETWORKPRODUCT,     PRODUCT.EMAILADDRESS,      
-    PRODUCT.DESCRIPTION, PRODUCT.ISSHAREDTENANT  ,PRODUCTCHOICEID , C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY       
-                    FROM  CUSTOMERPRODUCTSSUMMARY C with (nolock)          
-        ,  #TEMPLISTTABLE   AS PRODUCT   where   C.serialnumber=PRODUCT.serialnumber           
-                    ORDER BY C.CREATEDDATE ASC            
-                    FOR     XML AUTO ,            
-                   ELEMENTS                                     
-                    RETURN                
-                END                                    
-        END               
-                    
-    IF @PRODUCTLIST = 'LIMIT'             
-        BEGIN         
- --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)    
-            IF ( @OutformatXML = 0 )             
-                BEGIN                                    
-                    SELECT DISTINCT TOP 10            
-     C.PRODUCTID ,            
-     C.SERIALNUMBER ,            
-     C.[NAME] ,            
-     C.CUSTOMERPRODUCTID ,            
-     C.STATUS ,            
-     C.REGISTRATIONCODE ,            
-     C.FIRMWAREVERSION ,            
-      PRODUCT.PRODUCTLINE ,            
-     C.PRODUCTFAMILY ,            
-     C.CREATEDDATE ,            
-     C.NFR ,            
-     PRODUCT.OWNEROFTHEPRODUCT ,            
-     PRODUCT.PRODUCTOWNER ,            
-     C.ISSUENAME ,            
-     C.RESOLUTIONNAME ,            
-     C.PRODUCTNAME ,            
-     C.PRODUCTGROUPID ,            
-     C.PRODUCTGROUPNAME ,            
-     C.DISPLAYKEYSET ,            
-     C.ASSOCIATIONTYPE ,            
-     C.GROUPHEADERTEXT ,            
-     C.ASSOCIATIONTYPEID ,            
-     C.ISEPRS ,           
-     C.REMOVEASSOCIATION ,            
-     C.DELETEDM ,            
-     C.REGCODE ,            
-     C.CREATEDDATE AS REGISTRATIONDATE,      
-  --CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,    
-  C.LASTPINGDATE AS LASTPINGDATE,  
-     C.HGMSPROVISIONINGSTATUS,          
-     C.MCAFEEORDER,          
-     C.DEVICESTATUS,          
-     PRODUCT.ISDELETEALLOWED,          
-     PRODUCT.ISTRANSFERALLOWED,          
-     PRODUCT.ISRENAMEALLOWED,          
-     PRODUCT.ISSECUREUPGRADE,          
-     C.S1SVCSTATUS,          
-     C.SENTINELONEEXPIRYDATE,          
-     C.PRODUCTTYPE,          
-     C.LICENSEEXPIRYCNT,          
-     C.SOONEXPIRINGCNT,          
-     C.ACTIVELICENSECNT,          
-     PRODUCT.MINLICENSEEXPIRYDATE,          
-     PRODUCT.SOONEXPIRYDATE,C.EPAID ,C.SERVICELINE ,C.ISBILLABLE ,          
-     C.SUPPORTEXPIRYDATE,          
-       C.NONSUPPORTEXPIRYDATE,          
-       PRODUCT.ROLETYPE  ,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED, PRODUCT.ORGNAME, PRODUCT.ISADDKEYSETAPPLICABLE,      
-    PRODUCT.MSSPMONTHLYOPTION,C.ISNETWORKPRODUCT,     PRODUCT.EMAILADDRESS,      
-    PRODUCT.DESCRIPTION, PRODUCT.ISSHAREDTENANT      ,PRODUCTCHOICEID, C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY   
-                 FROM  CUSTOMERPRODUCTSSUMMARY C with (nolock)          
-        ,  #TEMPLISTTABLE   AS PRODUCT   where   C.serialnumber=PRODUCT.serialnumber   
-                    ORDER BY C.CREATEDDATE DESC                   
-                    RETURN                
-                END                
-            ELSE             
-   BEGIN              
- --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)     
-                    SELECT DISTINCT TOP 10            
-          C.PRODUCTID ,            
-                            C.SERIALNUMBER ,            
-                           C. [NAME] ,            
-                           C. CUSTOMERPRODUCTID ,            
-                           C. STATUS ,            
-                           C. REGISTRATIONCODE ,            
-                            C.FIRMWAREVERSION ,            
-                       C. PRODUCTLINE ,            
-                           C.PRODUCTFAMILY ,            
-                           C. CREATEDDATE ,            
-                           C. NFR ,            
-                           PRODUCT. OWNEROFTHEPRODUCT ,            
-                           PRODUCT. PRODUCTOWNER ,            
-                           C. ISSUENAME ,            
-                      C.RESOLUTIONNAME ,            
-                           C. PRODUCTNAME ,            
-                           C. PRODUCTGROUPID ,            
-                           C. PRODUCTGROUPNAME ,            
-                           C. DISPLAYKEYSET ,            
-                           C. ASSOCIATIONTYPE ,            
-        C. GROUPHEADERTEXT ,            
-       C.ASSOCIATIONTYPEID ,            
-  C.ISEPRS ,            
-  C.REMOVEASSOCIATION ,            
-                            C.DELETEDM ,            
-                            C.REGCODE ,            
-  C.CREATEDDATE AS REGISTRATIONDATE,      
- -- CASE WHEN @APPNAME ='SNB' THEN C.LASTPINGDATE END AS LASTPINGDATE,        
- C.LASTPINGDATE AS LASTPINGDATE,  
-       C.HGMSPROVISIONINGSTATUS,          
-       C.MCAFEEORDER,          
-       C.DEVICESTATUS,          
-       PRODUCT.ISDELETEALLOWED,          
-       PRODUCT.ISTRANSFERALLOWED,          
-       PRODUCT.ISRENAMEALLOWED,          
-       PRODUCT.ISSECUREUPGRADE,          
-       C.S1SVCSTATUS,          
-       C.SENTINELONEEXPIRYDATE,          
-       C.PRODUCTTYPE,          
-       C.LICENSEEXPIRYCNT,          
-       C.SOONEXPIRINGCNT,          
-       C.ACTIVELICENSECNT,          
-       PRODUCT.MINLICENSEEXPIRYDATE,          
-       PRODUCT.SOONEXPIRYDATE,C.EPAID ,C.SERVICELINE ,C.ISBILLABLE ,          
-       C.SUPPORTEXPIRYDATE,          
-         C.NONSUPPORTEXPIRYDATE,          
-         PRODUCT.ROLETYPE,C.SASELICENSECOUNT,C.ISZEROTOUCHALLOWED,PRODUCT.ORGNAME, PRODUCT.ISADDKEYSETAPPLICABLE,      
-   PRODUCT.MSSPMONTHLYOPTION,C.ISNETWORKPRODUCT , PRODUCT.EMAILADDRESS,      
-    PRODUCT.DESCRIPTION  , PRODUCT.ISSHAREDTENANT     ,PRODUCTCHOICEID, C.VULTOOLTIPTEXT, C.VULHREFTEXT,C.VULSEVERITY    
-                    FROM  CUSTOMERPRODUCTSSUMMARY C with (nolock)          
-        ,  #TEMPLISTTABLE   AS PRODUCT  where   C.serialnumber=PRODUCT.serialnumber          
-                    ORDER BY C.CREATEDDATE DESC            
-    FOR     XML AUTO ,            
-                                ELEMENTS                      
-                    RETURN                
-                END              
-             
-        DROP TABLE #TEMPLISTTABLE        
-  --DROP TABLE #tempPRGD      
-        END             
- END         
-          
-
-      
-      
-      
+    PRODUCT.MSSPMONTHLYOPTION,
