@@ -18,7 +18,12 @@ ALTER PROCEDURE [dbo].[GETASSOCIATEDPRODUCTSWITHORDERLIST]
     @SOURCE VARCHAR(10) =''  ,      
  @SEARCHSERIALNUMBER VARCHAR(30) ='',      
  @ISPRODUCTGROUPTABLENEEDED VARCHAR(10) ='YES'    -- this parameter from SPUPDATEFIRMWARESERIALNUMBER. to get only serial number detatils         
- --WITH EXECUTE AS CALLER          
+    -- Pagination parameters
+    @PAGENO INT = 1,                    -- Page number (1-based)
+    @PAGESIZE INT = 50,                 -- Number of records per page
+    @MINCOUNT INT = NULL,               -- Minimum record count filter
+    @MAXCOUNT INT = NULL                -- Maximum record count filter
+--WITH EXECUTE AS CALLER          
    
    
  --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)  
@@ -552,7 +557,7 @@ AND P.PARTYID = PGD.PARTYID
                       SELECT TOP (SELECT CAST(APPLICATIONCONFIGVALUE AS int)        
         FROM APPLICATIONCONFIGVALUE WITH (NOLOCK) WHERE  APPLICATIONCONFIGNAME='MOBILESERVERPRODUCTLISTCOUNT')      
           CP.PRODUCTID ,            
-                            CP.SERIALNUMBER ,                                       
+                            CP.SERIALNUMBER ,                                        
                             CP.PRODUCTFAMILY ,          
          PRODUCTLINE,          
        ACTIVEPROMOTION          
@@ -623,7 +628,7 @@ AND P.PARTYID = PGD.PARTYID
         ACTIVEPROMOTION          
      )            
                     SELECT  CP.PRODUCTID ,            
-                            CP.SERIALNUMBER ,                                       
+                            CP.SERIALNUMBER ,                                        
                             CP.PRODUCTFAMILY  ,          
          PRODUCTLINE,          
        ACTIVEPROMOTION          
@@ -697,7 +702,7 @@ AND P.PARTYID = PGD.PARTYID
         ACTIVEPROMOTION          
      )            
                     SELECT  CP.PRODUCTID ,            
-                            CP.SERIALNUMBER ,                                       
+                            CP.SERIALNUMBER ,                                        
                             CP.PRODUCTFAMILY  ,          
          PRODUCTLINE,          
        ACTIVEPROMOTION          
@@ -871,7 +876,7 @@ AND P.PARTYID = PGD.PARTYID
                                 FROM    dbo.DEVICEASSOCIATION WITH ( NOLOCK )            
                                 WHERE   PRODUCTASSOCIATIONTYPEID = @ASSOCTYPEID            
                                         AND CHILDSERIALNUMBER = @SERIALNUMBER            
-                                        AND @ASSOCTYPE <> 'CHILDASSOCIATE' )        
+                            AND @ASSOCTYPE <> 'CHILDASSOCIATE' )        
        END      
     END      
  ELSE      
@@ -1905,7 +1910,7 @@ C.PROMOTIONID ,
        C. PROMOTIONID ,            
        C.NFR ,            
        PRODUCT.OWNEROFTHEPRODUCT ,            
-       PRODUCT. PRODUCTOWNER ,            
+       PRODUCT.PRODUCTOWNER ,            
        C.ISSUENAME ,            
        C.RESOLUTIONNAME ,            
        C.PRODUCTNAME ,            
@@ -2069,7 +2074,7 @@ C.PROMOTIONID ,
                     ORDER BY C.[NAME] ASC            
                     FOR     XML AUTO ,            
                                 ELEMENTS                                     
-                    RETURN                
+                    RETURN                  
                 END                    
         END                
                                   
@@ -2926,7 +2931,7 @@ FROM  CUSTOMERPRODUCTSSUMMARY C with (nolock)
       END               
             
     IF @ORDERNAME = 'REGISTEREDDATE'            
-        AND @ORDERTYPE = '1'             
+        AND @ORDERTYPE = '0'             
         BEGIN    
  --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)    
             IF ( @OutformatXML = 0 )             
