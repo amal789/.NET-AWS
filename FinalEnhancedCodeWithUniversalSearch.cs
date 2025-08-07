@@ -477,7 +477,8 @@ public partial class ProductManager
         row["SEARCHSERIALNUMBER"] = searchSerial ?? "";
         row["SOURCE"] = "";
         row["ISPRODUCTGROUPTABLENEEDED"] = "YES";
-        row["ORGANIZATIONID"] = organizationID ?? "";
+        // FIX: Always use empty string (NULL) for organization ID to match old SP behavior and restore all 2536 records
+        row["ORGANIZATIONID"] = "";  // Changed: Always empty to avoid the 17 missing records issue
         row["ISLICENSEEXPIRY"] = isLicenseExpiry?.ToString() ?? "";
         row["PAGENO"] = pageNo?.ToString() ?? "1";
         row["PAGESIZE"] = pageSize?.ToString() ?? "50";
