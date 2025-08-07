@@ -2579,14 +2579,30 @@ END
  WHERE   ACTIVELICENSECNT > 0              
 
     -- Apply ORGANISATIONID filter if specified
+    -- NOTE: When @ORGANISATIONID is NULL, no filtering is applied (matches original stored procedure behavior)
+    -- When @ORGANISATIONID is provided, filter to show only products accessible through that organization
     IF @ORGANISATIONID IS NOT NULL
     BEGIN
+        -- Include products that are either:
+        -- 1. Owned by users in the specified organization, OR
+        -- 2. Directly accessible to the current user (for shared/transferred products)
         DELETE FROM #TEMPLISTTABLE 
         WHERE SERIALNUMBER NOT IN (
-            SELECT CP.SERIALNUMBER 
+            -- Products owned by users in the specified organization
+            SELECT DISTINCT CP.SERIALNUMBER 
             FROM CUSTOMERPRODUCTSSUMMARY CP WITH (NOLOCK)
             INNER JOIN vCUSTOMER V WITH (NOLOCK) ON CP.USERNAME = V.USERNAME
             WHERE V.ORGANIZATIONID = @ORGANISATIONID
+              AND CP.USEDSTATUS = 1
+            
+            UNION
+            
+            -- Products directly accessible to the current user regardless of organization
+            -- This ensures shared products and transferred products are still visible
+            SELECT DISTINCT CP.SERIALNUMBER 
+            FROM CUSTOMERPRODUCTSSUMMARY CP WITH (NOLOCK)
+            WHERE CP.USERNAME = @USERNAME
+              AND CP.USEDSTATUS = 1
         )
     END
 
