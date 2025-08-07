@@ -15,10 +15,11 @@ ALTER PROCEDURE [dbo].[GETASSOCIATEDPRODUCTSWITHORDERLIST]
     @OutformatXML INT = NULL ,            
     @CallFrom VARCHAR(50) = NULL ,            
     @IsMobile VARCHAR(50) = 'NO',          
-    @SOURCE VARCHAR(10) =''  ,      
+        @SOURCE VARCHAR(10) =''  ,      
  @SEARCHSERIALNUMBER VARCHAR(30) ='',      
  @ISPRODUCTGROUPTABLENEEDED VARCHAR(10) ='YES'    -- this parameter from SPUPDATEFIRMWARESERIALNUMBER. to get only serial number detatils         
- --WITH EXECUTE AS CALLER          
+ , @ISDOWNLOADAVAILABLE INT = NULL
+  --WITH EXECUTE AS CALLER                    
    
    
  --Whenever changes added in this sp we have to add changes of this SPUPDATEFIRMWARESERIALNUMBER too. (changes in getting serial number details)  
@@ -1055,7 +1056,8 @@ AND P.PARTYID = PGD.PARTYID
   ACTIVELICENSECNT =CP.ACTIVELICENSECNT,      
   ISNETWORKPRODUCT=CP.ISNETWORKPRODUCT,      
   --LASTPINGDATE= CASE WHEN @APPNAME='SNB' THEN CP.LASTPINGDATE  END     
-  LASTPINGDATE=CP.LASTPINGDATE   
+  LASTPINGDATE=CP.LASTPINGDATE,  
+  ISDOWNLOADAVAILABLE = CP.UPDATESAVAILABLE   
   from #TEMPLISTTABLE t         
   inner join  CUSTOMERPRODUCTSSUMMARY cp with (nolock)         
   on t.SERIALNUMBER=CP.serialnumber        
@@ -2559,9 +2561,15 @@ END
         
   --select * from #TEMPLISTTABLE      
                
- UPDATE  #TEMPLISTTABLE            
+   UPDATE  #TEMPLISTTABLE            
   SET  ISLICENSEEXPIRED = 1 , LICENSEEXPIRYCNT=1            
   WHERE   LICENSEEXPIRYCNT > 0          
+  
+  -- optional filter: only keep rows with matching isDownloadAvailable if provided
+  IF @ISDOWNLOADAVAILABLE IS NOT NULL
+  BEGIN
+    DELETE FROM #TEMPLISTTABLE WHERE ISNULL(ISDOWNLOADAVAILABLE,-1) <> @ISDOWNLOADAVAILABLE
+  END            
           
   UPDATE  #TEMPLISTTABLE            
   SET  ISSOONEXPIRING = 1 , SOONEXPIRINGCNT = 1            
