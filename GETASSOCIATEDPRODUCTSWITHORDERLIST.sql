@@ -20,6 +20,7 @@ ALTER PROCEDURE [dbo].[GETASSOCIATEDPRODUCTSWITHORDERLIST]
  @ISPRODUCTGROUPTABLENEEDED VARCHAR(10) ='YES',    -- this parameter from SPUPDATEFIRMWARESERIALNUMBER. to get only serial number detatils         
     @ORGANISATIONID BIGINT = NULL,              -- Filter by specific organization ID
     @ISLICENSEEXPIRY BIT = NULL,                -- Filter by license expiry status (1=expired, 0=not expired, NULL=all)
+    @QUERYSTR VARCHAR(100) = NULL,              -- Universal search parameter for TenantName, FriendlyName, SerialNumber, ProductName, FirmwareVersion
     -- Pagination parameters
     @PAGENO INT = 1,                            -- Page number (1-based)
     @PAGESIZE INT = 50,                         -- Number of records per page
@@ -2575,17 +2576,39 @@ END
   WHERE   SOONEXPIRINGCNT > 0          
           
    UPDATE  #TEMPLISTTABLE            
- SET   ACTIVELICENSECNT = 1            
- WHERE   ACTIVELICENSECNT > 0              
+SET   ACTIVELICENSECNT = 1            
+WHERE   ACTIVELICENSECNT > 0              
+
+    -- Apply universal search filter if specified (TenantName, FriendlyName, SerialNumber, ProductName, FirmwareVersion)
+    IF @QUERYSTR IS NOT NULL AND LEN(TRIM(@QUERYSTR)) > 0
+    BEGIN
+        DECLARE @SearchTerm VARCHAR(102) = '%' + UPPER(@QUERYSTR) + '%'
+        DELETE FROM #TEMPLISTTABLE
+        WHERE NOT (
+            (PRODUCTGROUPNAME IS NOT NULL AND UPPER(PRODUCTGROUPNAME) LIKE @SearchTerm)
+            OR (SERIALNUMBER IS NOT NULL AND UPPER(SERIALNUMBER) LIKE @SearchTerm)
+        )
+        
+        -- Apply search against CUSTOMERPRODUCTSSUMMARY for additional fields
+        DELETE FROM #TEMPLISTTABLE 
+        WHERE SERIALNUMBER NOT IN (
+            SELECT DISTINCT T.SERIALNUMBER
+            FROM #TEMPLISTTABLE T
+            INNER JOIN CUSTOMERPRODUCTSSUMMARY CPS WITH (NOLOCK) ON T.SERIALNUMBER = CPS.SERIALNUMBER
+            WHERE (PRODUCTGROUPNAME IS NOT NULL AND UPPER(PRODUCTGROUPNAME) LIKE @SearchTerm)
+               OR (T.SERIALNUMBER IS NOT NULL AND UPPER(T.SERIALNUMBER) LIKE @SearchTerm)
+               OR (CPS.NAME IS NOT NULL AND UPPER(CPS.NAME) LIKE @SearchTerm)
+               OR (CPS.PRODUCTNAME IS NOT NULL AND UPPER(CPS.PRODUCTNAME) LIKE @SearchTerm)
+               OR (CPS.FIRMWAREVERSION IS NOT NULL AND UPPER(CPS.FIRMWAREVERSION) LIKE @SearchTerm)
+        )
+    END
 
     -- Apply ORGANISATIONID filter if specified
     -- NOTE: When @ORGANISATIONID is NULL, no filtering is applied (matches original stored procedure behavior)
-    -- When @ORGANISATIONID is provided, filter to show only products accessible through that organization
+    -- When @ORGANISATIONID is provided, filter to show products accessible through that organization
+    -- ENHANCED: Include shared tenants and cross-organizational access to match original SP behavior
     IF @ORGANISATIONID IS NOT NULL
     BEGIN
-        -- Include products that are either:
-        -- 1. Owned by users in the specified organization, OR
-        -- 2. Directly accessible to the current user (for shared/transferred products)
         DELETE FROM #TEMPLISTTABLE 
         WHERE SERIALNUMBER NOT IN (
             -- Products owned by users in the specified organization
@@ -2597,12 +2620,32 @@ END
             
             UNION
             
-            -- Products directly accessible to the current user regardless of organization
-            -- This ensures shared products and transferred products are still visible
+            -- Products directly accessible to the current user (preserves shared/transferred products)
             SELECT DISTINCT CP.SERIALNUMBER 
             FROM CUSTOMERPRODUCTSSUMMARY CP WITH (NOLOCK)
             WHERE CP.USERNAME = @USERNAME
               AND CP.USEDSTATUS = 1
+            
+            UNION
+            
+            -- Products accessible through shared tenants/product groups in the organization
+            SELECT DISTINCT PTGD.SERIALNUMBER
+            FROM PRODUCTGROUPDETAIL PTGD WITH (NOLOCK)
+            INNER JOIN PRODUCTGROUP PTG WITH (NOLOCK) ON PTGD.PRODUCTGROUPID = PTG.PRODUCTGROUPID
+            INNER JOIN PARTY P WITH (NOLOCK) ON PTG.ADMINPARTYID = P.PARTYID
+            WHERE P.ORGANIZATIONID = @ORGANISATIONID
+              AND PTGD.SERIALNUMBER IS NOT NULL
+            
+            UNION
+            
+            -- Products in shared tenants that current user has explicit access to via #tempPRGD
+            -- This preserves the original SP's comprehensive tenant access logic
+            SELECT DISTINCT PTGD.SERIALNUMBER
+            FROM #tempPRGD PTGD WITH (NOLOCK)
+            INNER JOIN PRODUCTGROUP PTG WITH (NOLOCK) ON PTGD.PRODUCTGROUPID = PTG.PRODUCTGROUPID
+            INNER JOIN PARTY P WITH (NOLOCK) ON PTG.ADMINPARTYID = P.PARTYID
+            WHERE (P.ORGANIZATIONID = @ORGANISATIONID OR PTGD.ORGANIZATIONID = @ORGANISATIONID)
+              AND PTGD.SERIALNUMBER IS NOT NULL
         )
     END
 
